@@ -1,4 +1,4 @@
-#include "../token.h"
+#include "lex/token.h"
 #include <gtest/gtest.h>
 
 namespace flynt::lex {

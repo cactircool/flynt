@@ -1,5 +1,5 @@
-#include "lexer.h"
-#include "preprocessor.h"
+#include "lex/lexer.h"
+#include "flynt/preprocessor.h"
 
 namespace flynt::lex {
 

@@ -3,7 +3,7 @@
 
 #include <sys/types.h>
 #include <cassert>
-#include "preprocessor.h"
+#include "flynt/preprocessor.h"
 
 namespace flynt::util {
 

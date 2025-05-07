@@ -1,4 +1,4 @@
-#include "../lexer.h"
+#include "lex/lexer.h"
 #include <gtest/gtest.h>
 
 #define TEST_PATH(X) "../../test" X

@@ -1,4 +1,4 @@
-#include "../slidingwindow.h"
+#include "util/slidingwindow.h"
 #include <gtest/gtest.h>
 
 namespace flynt::util {

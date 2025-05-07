@@ -1,4 +1,4 @@
-#include "../binarytree.h"
+#include "util/binarytree.h"
 #include <gtest/gtest.h>
 #include <string>
 

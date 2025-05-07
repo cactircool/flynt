@@ -1,7 +1,7 @@
 #include <iostream>
 #include <gtest/gtest.h>
-#include "preprocessor.h"
-#include "lexer.h"
+#include "flynt/preprocessor.h"
+#include "lex/lexer.h"
 
 int main(int argc, char **argv) {
     flynt::lex::Lexer::init();

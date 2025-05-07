@@ -3,8 +3,8 @@
 
 #include <fstream>
 #include <deque>
-#include "token.h"
-#include "binarytree.h"
+#include "lex/token.h"
+#include "util/binarytree.h"
 
 namespace flynt::lex {
 

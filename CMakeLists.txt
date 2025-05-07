@@ -21,6 +21,8 @@ file(GLOB_RECURSE SOURCES
   "${PROJECT_SOURCE_DIR}/test/*.cpp"
 )
 
+# include_directories("${PROJECT_SOURCE_DIR}/include")
+
 add_executable(flynt
     ${HEADERS}
     ${SOURCES}
@@ -28,6 +30,7 @@ add_executable(flynt
 
 target_link_libraries(flynt gtest_main gtest)
 include(GoogleTest)
+target_include_directories(flynt PUBLIC "${PROJECT_SOURCE_DIR}/include")
 
 include(GNUInstallDirs)
 install(TARGETS flynt
