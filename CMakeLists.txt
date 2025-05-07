@@ -23,17 +23,28 @@ file(GLOB_RECURSE SOURCES
 
 # include_directories("${PROJECT_SOURCE_DIR}/include")
 
-add_executable(flynt
+add_executable(${PROJECT_NAME}
     ${HEADERS}
     ${SOURCES}
 )
 
-target_link_libraries(flynt gtest_main gtest)
+target_link_libraries(${PROJECT_NAME} gtest_main gtest)
 include(GoogleTest)
-target_include_directories(flynt PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include")
 
 include(GNUInstallDirs)
 install(TARGETS flynt
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+function(IndicateExternalFile _target)
+    foreach(_file IN ITEMS ${ARGN})
+        if ((IS_ABSOLUTE "${_file}" AND EXISTS "${_file}") OR
+            (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_file}"))
+            target_sources(${_target} PRIVATE "${_file}")
+        endif()
+    endforeach()
+endfunction()
+
+IndicateExternalFile(${PROJECT_NAME} "README.md" "LICENSE")
