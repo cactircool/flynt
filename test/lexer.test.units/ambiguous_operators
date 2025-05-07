@@ -1,0 +1,62 @@
++5;
+-5;
+&x;
+*ptr;
+%val;
+^bit;
+
+a++;
+b--;
+arr+;
+ptr%;
+val^;
+
+a + b;
+x - y;
+ptr & ref;
+val * 2;
+num % 2;
+bit ^ mask;
+
++a + b;
+-a - b;
+*ptr * arr;
+&ref & val;
+%num % div;
+^bit ^ mask;
+
+++i + 5;
+--j - 3;
+*ptr * &val;
+&ref & *ptr;
+
++a + +b;
+-x - -y;
+&val & &ref;
+*ptr * *arr;
+
+id+;
+id-;
+id*;
+id&;
+id%;
+id^;
+
+(+a);
+{-b};
+[*c];
+<&d>;
+
++-x;
+-+y;
+&*ptr;
+*&ref;
+%^val;
+^%bit;
+
+var +x;
+fn -y;
+ret *ptr;
+if &val;
+(x+);
+{y-};
