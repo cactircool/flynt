@@ -13,16 +13,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
-add_executable(flynt main.cpp
-    token.h token.cpp
-    lexer.h lexer.cpp
-    slidingwindow.h
-    preprocessor.h
-    test/token.test.cpp
-    test/slidingwindow.test.cpp
-    test/lexer.test.cpp
-    binarytree.h
-    test/binarytree.test.cpp
+file(GLOB_RECURSE HEADERS "${PROJECT_SOURCE_DIR}/include/*.h" "${PROJECT_SOURCE_DIR}/include/*.hpp")
+file(GLOB_RECURSE SOURCES
+  "${PROJECT_SOURCE_DIR}/src/*.c"
+  "${PROJECT_SOURCE_DIR}/src/*.cpp"
+  "${PROJECT_SOURCE_DIR}/test/*.c"
+  "${PROJECT_SOURCE_DIR}/test/*.cpp"
+)
+
+add_executable(flynt
+    ${HEADERS}
+    ${SOURCES}
 )
 
 target_link_libraries(flynt gtest_main gtest)
