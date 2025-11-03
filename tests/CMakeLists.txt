@@ -14,7 +14,7 @@ FetchContent_Declare(
   # Example common pinned URL:
   # URL https://github.com/google/googletest/archive/refs/tags/release-1.14.0.zip
   GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG release-1.17.0  # pin to a stable release; change if you prefer another version
+  GIT_TAG v1.15.2  # pin to a stable release; change if you prefer another version
 )
 
 # Prevent overriding the parent project's compiler/linker settings
@@ -27,7 +27,7 @@ file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tests/*.cpp")
 add_executable(unit_tests ${TEST_SOURCES})
 
 target_include_directories(unit_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(unit_tests PRIVATE GTest::gtest_main)
+target_link_libraries(unit_tests PRIVATE flynt_lib GTest::gtest_main)
 
 # Match same compiler options as the main target (optional)
 if (MSVC)
@@ -38,7 +38,7 @@ endif()
 
 # Ensure tests run in correct directory (optional)
 set_target_properties(unit_tests PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/tests_bin"
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/tests"
 )
 
 # Register with CTest

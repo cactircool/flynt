@@ -9,12 +9,16 @@ namespace flynt {
 	class Lexer {
 		std::deque<Token> _buffer;
 		std::istream &_in;
-		Token _last_lexed_token;
+		unsigned _options: 3; // [left][right][binary] 000
+		constexpr static unsigned LEFT = 0b100;
+		constexpr static unsigned RIGHT = 0b010;
+		constexpr static unsigned BINARY = 0b001;
 
 		Token::Type read_known();
 		Token read_string();
 		Token read_char();
 		Token read_number();
+		Token remove_top();
 
 		Token dumb_lex();
 

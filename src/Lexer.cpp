@@ -4,20 +4,88 @@
 #include <cstring>
 #include <istream>
 #include <string>
+#include <vector>
 
-flynt::Lexer::Lexer(std::istream &in) : _buffer(), _in(in), _last_lexed_token(Token::Type::UNKNOWN) {}
+flynt::Lexer::Lexer(std::istream &in) : _buffer(), _in(in), _options(LEFT) {}
+
+// flynt::Token::Type flynt::Lexer::read_known() {
+// 	// turn into a giant switch statement but that's less debuggable so not right now
+// 	size_t len = (sizeof(Token::_values) / sizeof(*Token::_values));
+// 	int candidate = -1;
+// 	for (int i = len - 1; i >= 0; --i) {
+// 		size_t len = strlen(Token::_values[i]);
+// 		std::string buf(len, '\0');
+// 		_in.read(buf.data(), len);
+// 		if (buf == Token::_values[i] && (candidate == -1 || buf.size() > strlen(Token::_values[candidate])))
+// 			candidate = i;
+// 		_in.seekg(-len, std::ios::cur);
+// 	}
+// 	if (candidate == -1)
+// 		return Token::Type::UNKNOWN;
+// 	_in.seekg(strlen(Token::_values[candidate]), std::ios::cur);
+// 	return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate);
+// }
 
 flynt::Token::Type flynt::Lexer::read_known() {
-	// turn into a giant switch statement but that's less debuggable so not right now
-	for (size_t i = 0; i < (sizeof(Token::_values) / sizeof(*Token::_values)); ++i) {
-		size_t len = strlen(Token::_values[i]);
-		std::string buf(len, '\0');
-		_in.read(buf.data(), len);
-		if (buf == Token::_values[i])
-			return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + i);
-		_in.seekg(-len, std::ios::cur);
-	}
-	return Token::Type::UNKNOWN;
+    constexpr size_t numValues = sizeof(Token::_values) / sizeof(*Token::_values);
+
+    // Helper to check if a character is part of an identifier
+    auto is_ident_char = [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+    };
+
+    // Helper to check if a token is alphanumeric (keyword/identifier-like)
+    auto is_alphanumeric_token = [](const char* tok) {
+        return tok[0] != '\0' && std::isalnum(static_cast<unsigned char>(tok[0]));
+    };
+
+    // Save the current position to rewind if no match
+    std::streampos start = _in.tellg();
+
+    // Read ahead the maximum possible token length + 1 (for boundary check)
+    size_t maxLen = 0;
+    for (size_t i = 0; i < numValues; ++i)
+        maxLen = std::max(maxLen, strlen(Token::_values[i]));
+
+    std::string lookahead(maxLen + 1, '\0');
+    _in.read(lookahead.data(), maxLen + 1);
+    size_t bytesRead = _in.gcount();
+
+    // Find the longest matching known token
+    int candidate = -1;
+    size_t candidateLen = 0;
+
+    for (size_t i = 0; i < numValues; ++i) {
+        const char* tok = Token::_values[i];
+        size_t tokLen = strlen(tok);
+
+        if (tokLen <= bytesRead && lookahead.compare(0, tokLen, tok) == 0) {
+            // For alphanumeric tokens, check word boundary
+            if (is_alphanumeric_token(tok)) {
+                // Ensure the next character is NOT an identifier character
+                if (tokLen < bytesRead && is_ident_char(lookahead[tokLen])) {
+                    continue; // Not a complete token, skip
+                }
+            }
+
+            if (tokLen > candidateLen) {
+                candidate = static_cast<int>(i);
+                candidateLen = tokLen;
+            }
+        }
+    }
+
+    if (candidate == -1) {
+        // no known token matched → rewind and return UNKNOWN
+        _in.clear();
+        _in.seekg(start);
+        return Token::Type::UNKNOWN;
+    }
+
+    // Move the stream position to after the matched token
+    _in.clear();
+    _in.seekg(start + static_cast<std::streamoff>(candidateLen));
+    return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate);
 }
 
 flynt::Token flynt::Lexer::peek() {
@@ -35,12 +103,24 @@ flynt::Token flynt::Lexer::dumb_lex() {
 	for (c = _in.peek(); std::isspace(c); c = _in.peek())
 		_in.get();
 
+	if (c == '&' || c == '|') {
+		_in.get(c);
+		char n;
+		if (_in.get(n) && c == n) {
+			return Token(c == '&' ? Token::Type::AND : Token::Type::OR);
+		} else {
+			_in.clear();
+			_in.seekg(-2, std::ios::cur);
+		}
+	}
+
 	if (c == '"')
 		return read_string();
 	if (c == '\'')
 		return read_char();
 	if (std::isdigit(c) || c == '.')
-		return read_number();
+		if (auto tok = read_number(); tok.type() != Token::Type::UNKNOWN)
+			return tok;
 
 	if (auto type = read_known(); type != Token::Type::UNKNOWN)
 		return Token(type);
@@ -56,84 +136,66 @@ flynt::Token flynt::Lexer::dumb_lex() {
 	return Token(Token::Type::UNKNOWN);
 }
 
+flynt::Token flynt::Lexer::remove_top() {
+	static constexpr auto modify = [](unsigned ops, Token &tok) {
+		if (ops == LEFT)
+			tok.leftify();
+		else if (ops == RIGHT)
+			tok.rightify();
+		else if (ops == BINARY)
+			tok.binaryify();
+	};
+
+	auto front = _buffer.front();
+	_buffer.pop_front();
+	modify(_options, front);
+	_options = front.follow_options();
+	return front;
+}
+
 flynt::Token flynt::Lexer::lex() {
-	// Return buffered tokens first
-	if (!_buffer.empty()) {
-		auto front = _buffer.front();
-		_buffer.pop_front();
-		_last_lexed_token = front;
-		return front;
-	}
+	static constexpr unsigned LEFT = 0b100, RIGHT = 0b010, BINARY = 0b001;
+	static constexpr auto is_power_of_2 = [](unsigned n) {
+		return (n > 0) && ((n & (n - 1)) == 0);
+	};
+	static constexpr auto modify = [](unsigned ops, Token &tok) {
+		if (ops == LEFT)
+			tok.leftify();
+		else if (ops == RIGHT)
+			tok.rightify();
+		else if (ops == BINARY)
+			tok.binaryify();
+	};
+
+	if (!_buffer.empty())
+		return remove_top();
 
 	auto tok = dumb_lex();
+	for (; tok.vague(); tok = dumb_lex())
+		_buffer.push_back(tok);
 
-	// If not vague, return immediately - no disambiguation needed
-	if (!tok.vague()) {
-		_last_lexed_token = tok;
+	if (_buffer.empty()) {
+		modify(_options, tok);
+		_options = tok.follow_options();
 		return tok;
 	}
 
-	// Read all consecutive vague tokens into buffer
-	while (tok.vague()) {
-		_buffer.push_back(tok);
-		tok = dumb_lex();
-	}
-
-	// Now tok is non-vague (or UNKNOWN/EOF)
-	// Disambiguate the vague tokens based on what follows
-
+	_buffer.push_back(tok);
 	for (size_t i = 0; i < _buffer.size(); ++i) {
-		auto &vague_tok = _buffer[i];
-
-		// Determine what follows this vague token
-		Token following = (i + 1 < _buffer.size()) ? _buffer[i + 1] : tok;
-
-		if (following.follows_right()) {
-			// Next token can follow a right unary operator
-			vague_tok.rightify();
-		} else if (following.follows_left_binary()) {
-			// Next token can follow a left unary or binary operator
-			// Need to check what precedes to decide
-
-			if (i == 0) {
-				// First token in buffer - check the last lexed token
-				if (_last_lexed_token.type() == Token::Type::UNKNOWN) {
-					// Beginning of input - must be left unary
-					vague_tok.leftify();
-				} else if (_last_lexed_token.precedes_left()) {
-					vague_tok.leftify();
-				} else if (_last_lexed_token.precedes_right_binary()) {
-					vague_tok.binaryify();
-				} else {
-					// Default to left unary if unclear
-					vague_tok.leftify();
-				}
-			} else {
-				// Check the previous token we just classified
-				auto &prev = _buffer[i - 1];
-				if (prev.precedes_left()) {
-					vague_tok.leftify();
-				} else if (prev.precedes_right_binary()) {
-					vague_tok.binaryify();
-				} else {
-					// Default to left unary
-					vague_tok.leftify();
-				}
-			}
-		} else {
-			// Unclear context - default to left unary
-			vague_tok.leftify();
+		unsigned prev_ops = i == 0 ? _options : _buffer[i - 1].follow_options();
+		unsigned next_ops = i == _buffer.size() - 1 || _buffer[i + 1].vague() ? 0b111 : _buffer[i + 1].precede_options();
+		unsigned constraint = prev_ops & next_ops;
+		bool force = !is_power_of_2(constraint);
+		Token::Type old_type = _buffer[i].type();
+		if (force) // since LR doesn't make sense, the token must support a binary option, so clamping to binary is valid (or does nothing)
+			constraint = BINARY;
+		modify(constraint, _buffer[i]);
+		if (old_type == _buffer[i]._type) {
+			constraint = (prev_ops & next_ops) & (LEFT | RIGHT);
+			modify(constraint, _buffer[i]);
 		}
 	}
-
-	// Add the non-vague token to buffer for next call
-	_buffer.push_back(tok);
-
-	// Return the first disambiguated token
-	auto front = _buffer.front();
-	_buffer.pop_front();
-	_last_lexed_token = front;
-	return front;
+	return remove_top();
 }
 
 flynt::Token flynt::Lexer::read_string() {

@@ -13,12 +13,31 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ---- Define target ----
+# Grab all .cpp files EXCEPT main.cpp
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
-        "${PROJECT_SOURCE_DIR}/src/*.cpp"
+    "${PROJECT_SOURCE_DIR}/src/*.cpp"
 )
 
-add_executable(${PROJECT_NAME} ${SRC_FILES})
+# Remove main.cpp from the list
+list(FILTER SRC_FILES EXCLUDE REGEX ".*main\\.cpp$")
+
+add_library(flynt_lib ${SRC_FILES})
+
+target_include_directories(flynt_lib
+    PUBLIC
+    ${PROJECT_SOURCE_DIR}/include
+)
+
+# (optional but good) Apply same warnings
+if (MSVC)
+    target_compile_options(flynt_lib PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(flynt_lib PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# Create the main executable that links the library
+add_executable(${PROJECT_NAME} src/main.cpp)
+target_link_libraries(${PROJECT_NAME} PRIVATE flynt_lib)
 
 # ---- Include directories ----
 target_include_directories(${PROJECT_NAME}

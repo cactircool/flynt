@@ -29,6 +29,7 @@ namespace flynt {
 			COLON,
 			ARROW,
 			DOUBLE_ARROW,
+			COMMA,
 
 			LET,
 			FN,
@@ -148,6 +149,7 @@ namespace flynt {
 			":",
 			"->",
 			"=>",
+			",",
 
 			"let",
 			"fn",
@@ -284,11 +286,9 @@ namespace flynt {
 		bool closed() const;
 		int scope() const;
 
-		bool precedes_left() const;
-		bool precedes_right_binary() const;
-
-		bool follows_right() const;
-		bool follows_left_binary() const;
+		unsigned precede_options() const;
+		unsigned follow_options() const;
+		unsigned option() const;
 
 		friend Lexer;
 	};

@@ -467,18 +467,40 @@ int flynt::Token::scope() const {
 	}
 }
 
-bool flynt::Token::precedes_left() const {
-	return binary() || left() || keyword() || (symbol() && !closed());
+unsigned flynt::Token::precede_options() const {
+	constexpr unsigned LEFT = 0b100, RIGHT = 0b010, BINARY = 0b001;
+	if (id() || literal())
+		return LEFT | BINARY;
+	if (keyword() || (symbol() && !open()))
+		return RIGHT;
+	if (open())
+		return LEFT | BINARY;
+	if (binary())
+		return RIGHT;
+	if (right())
+		return RIGHT;
+	if (left())
+		return LEFT | BINARY;
+	return 0;
 }
 
-bool flynt::Token::precedes_right_binary() const {
-	return literal() || id() || closed() || right();
+unsigned flynt::Token::follow_options() const {
+	constexpr unsigned LEFT = 0b100, RIGHT = 0b010, BINARY = 0b001;
+	if (_type == Type::C_BRACE)
+		return LEFT;
+	if (id() || literal() || closed())
+		return RIGHT | BINARY;
+	if (keyword() || symbol()) // closed already taken out
+		return LEFT;
+	if (binary())
+		return LEFT;
+	if (right())
+		return RIGHT | BINARY;
+	if (left())
+		return LEFT;
+	return 0;
 }
 
-bool flynt::Token::follows_right() const {
-	return binary() || keyword() || (symbol() && !open());
-}
-
-bool flynt::Token::follows_left_binary() const {
-	return literal() || id() || open() || left();
+unsigned flynt::Token::option() const {
+	return left() ? 0b100 : right() ? 0b010 : binary() ? 0b001 : 0;
 }
