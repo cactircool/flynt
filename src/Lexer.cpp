@@ -4,7 +4,6 @@
 #include <cstring>
 #include <istream>
 #include <string>
-#include <vector>
 
 flynt::Lexer::Lexer(std::istream &in) : _buffer(), _in(in), _options(LEFT) {}
 
