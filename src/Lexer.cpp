@@ -99,6 +99,7 @@ flynt::Token flynt::Lexer::dumb_lex() {
 			}
 		}
 		else {
+			_in.clear();
 			_in.unget();
 			break;
 		}

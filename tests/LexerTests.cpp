@@ -1252,3 +1252,11 @@ TEST(LexerTest, IdeaKeyword) {
     EXPECT_EQ(lexer.lex().type(), Token::Type::O_BRACE);
     EXPECT_EQ(lexer.lex().type(), Token::Type::C_BRACE);
 }
+
+TEST(LexerTest, Comments) {
+	std::stringstream ss("/* hello world! */x;//hi");
+	Lexer lexer(ss);
+
+	EXPECT_EQ(lexer.lex().type(), Token::Type::ID);
+	EXPECT_EQ(lexer.lex().type(), Token::Type::SEMI_COLON);
+}
