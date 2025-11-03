@@ -4,87 +4,60 @@
 #include <cstring>
 #include <istream>
 #include <string>
+#include <limits>
 
 flynt::Lexer::Lexer(std::istream &in) : _buffer(), _in(in), _options(LEFT) {}
 
-// flynt::Token::Type flynt::Lexer::read_known() {
-// 	// turn into a giant switch statement but that's less debuggable so not right now
-// 	size_t len = (sizeof(Token::_values) / sizeof(*Token::_values));
-// 	int candidate = -1;
-// 	for (int i = len - 1; i >= 0; --i) {
-// 		size_t len = strlen(Token::_values[i]);
-// 		std::string buf(len, '\0');
-// 		_in.read(buf.data(), len);
-// 		if (buf == Token::_values[i] && (candidate == -1 || buf.size() > strlen(Token::_values[candidate])))
-// 			candidate = i;
-// 		_in.seekg(-len, std::ios::cur);
-// 	}
-// 	if (candidate == -1)
-// 		return Token::Type::UNKNOWN;
-// 	_in.seekg(strlen(Token::_values[candidate]), std::ios::cur);
-// 	return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate);
-// }
-
 flynt::Token::Type flynt::Lexer::read_known() {
-    constexpr size_t numValues = sizeof(Token::_values) / sizeof(*Token::_values);
+	constexpr size_t numValues = sizeof(Token::_values) / sizeof(*Token::_values);
+	auto is_ident_char = [](char c) {
+		return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+	};
 
-    // Helper to check if a character is part of an identifier
-    auto is_ident_char = [](char c) {
-        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
-    };
+	auto is_alphanumeric_token = [](const char* tok) {
+		return tok[0] != '\0' && std::isalnum(static_cast<unsigned char>(tok[0]));
+	};
 
-    // Helper to check if a token is alphanumeric (keyword/identifier-like)
-    auto is_alphanumeric_token = [](const char* tok) {
-        return tok[0] != '\0' && std::isalnum(static_cast<unsigned char>(tok[0]));
-    };
+	std::streampos start = _in.tellg();
 
-    // Save the current position to rewind if no match
-    std::streampos start = _in.tellg();
+	size_t maxLen = 0;
+	for (size_t i = 0; i < numValues; ++i)
+		maxLen = std::max(maxLen, strlen(Token::_values[i]));
 
-    // Read ahead the maximum possible token length + 1 (for boundary check)
-    size_t maxLen = 0;
-    for (size_t i = 0; i < numValues; ++i)
-        maxLen = std::max(maxLen, strlen(Token::_values[i]));
+	std::string lookahead(maxLen + 1, '\0');
+	_in.read(lookahead.data(), maxLen + 1);
+	size_t bytesRead = _in.gcount();
 
-    std::string lookahead(maxLen + 1, '\0');
-    _in.read(lookahead.data(), maxLen + 1);
-    size_t bytesRead = _in.gcount();
+	int candidate = -1;
+	size_t candidateLen = 0;
 
-    // Find the longest matching known token
-    int candidate = -1;
-    size_t candidateLen = 0;
+	for (size_t i = 0; i < numValues; ++i) {
+		const char* tok = Token::_values[i];
+		size_t tokLen = strlen(tok);
 
-    for (size_t i = 0; i < numValues; ++i) {
-        const char* tok = Token::_values[i];
-        size_t tokLen = strlen(tok);
+		if (tokLen <= bytesRead && lookahead.compare(0, tokLen, tok) == 0) {
+			if (is_alphanumeric_token(tok)) {
+				if (tokLen < bytesRead && is_ident_char(lookahead[tokLen])) {
+					continue; // Not a complete token, skip
+				}
+			}
 
-        if (tokLen <= bytesRead && lookahead.compare(0, tokLen, tok) == 0) {
-            // For alphanumeric tokens, check word boundary
-            if (is_alphanumeric_token(tok)) {
-                // Ensure the next character is NOT an identifier character
-                if (tokLen < bytesRead && is_ident_char(lookahead[tokLen])) {
-                    continue; // Not a complete token, skip
-                }
-            }
+			if (tokLen > candidateLen) {
+				candidate = static_cast<int>(i);
+				candidateLen = tokLen;
+			}
+		}
+	}
 
-            if (tokLen > candidateLen) {
-                candidate = static_cast<int>(i);
-                candidateLen = tokLen;
-            }
-        }
-    }
+	if (candidate == -1) {
+		_in.clear();
+		_in.seekg(start);
+		return Token::Type::UNKNOWN;
+	}
 
-    if (candidate == -1) {
-        // no known token matched → rewind and return UNKNOWN
-        _in.clear();
-        _in.seekg(start);
-        return Token::Type::UNKNOWN;
-    }
-
-    // Move the stream position to after the matched token
-    _in.clear();
-    _in.seekg(start + static_cast<std::streamoff>(candidateLen));
-    return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate);
+	_in.clear();
+	_in.seekg(start + static_cast<std::streamoff>(candidateLen));
+	return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate);
 }
 
 flynt::Token flynt::Lexer::peek() {
@@ -98,10 +71,40 @@ void flynt::Lexer::put_back(const Token &tok) {
 }
 
 flynt::Token flynt::Lexer::dumb_lex() {
-	char c;
-	for (c = _in.peek(); std::isspace(c); c = _in.peek())
-		_in.get();
+	while (true) {
+		while (std::isspace(_in.peek()))
+			_in.get();
 
+		if (_in.peek() != '/')
+			break;
+
+		_in.get();
+		if (_in.peek() == '/') {
+			_in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+		}
+		else if (_in.peek() == '*') {
+			_in.get();
+			bool endFound = false;
+			char prev = 0, curr = 0;
+			while (_in.get(curr)) {
+				if (prev == '*' && curr == '/') {
+					endFound = true;
+					break;
+				}
+				prev = curr;
+			}
+
+			if (!endFound) {
+				return Token(Token::Type::UNKNOWN);
+			}
+		}
+		else {
+			_in.unget();
+			break;
+		}
+	}
+
+	char c = _in.peek();
 	if (c == '&' || c == '|') {
 		_in.get(c);
 		char n;
