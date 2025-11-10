@@ -10,6 +10,7 @@ namespace flynt {
 		std::streambuf *_source;
 		std::streamoff _line, _col, _last_pos;
 		char _last_char;
+		char _buffer;
 	public:
 		TrackingStreamBuf(std::streambuf *source);
 
@@ -24,9 +25,10 @@ namespace flynt {
 		std::streamsize xsgetn(char* s, std::streamsize n) override;
 	private:
 		void update_position(char c, bool backward);
-		void update_position_backward(char c);
+		void update_position_backward();
 		void recalculate_column();
-		void recalculate_position();
+		void recalculate_position_at(std::streampos end);
+		void recalculate_position_non_destructive();
 	};
 
 }

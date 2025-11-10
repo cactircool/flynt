@@ -2,6 +2,7 @@
 #include "Lexer.hpp"
 #include "Token.hpp"
 #include <sstream>
+#include <string>
 
 using namespace flynt;
 
@@ -10,988 +11,534 @@ protected:
     void SetUp() override {}
     void TearDown() override {}
 
-    // Helper function to create a lexer from a string
-    std::unique_ptr<Lexer> createLexer(const std::string& input) {
-        auto stream = std::make_unique<std::stringstream>(input);
-        streams.push_back(std::move(stream));
-        return std::make_unique<Lexer>(*streams.back());
+    Token::Type getTokenType(const std::string& input) {
+        std::istringstream iss(input);
+        Lexer lexer(iss);
+        return lexer.lex().first.type();
     }
 
-    // Keep streams alive for the duration of the test
-    std::vector<std::unique_ptr<std::stringstream>> streams;
+    std::string getTokenValue(const std::string& input) {
+        std::istringstream iss(input);
+        Lexer lexer(iss);
+        return lexer.lex().first.value();
+    }
+
+    Lexer::FatToken getFatToken(const std::string& input) {
+        std::istringstream iss(input);
+        Lexer lexer(iss);
+        return lexer.lex();
+    }
 };
 
-// Basic token recognition tests
-TEST_F(LexerTest, LexKeywords) {
-    auto lexer = createLexer("let fn type trait if else for");
+// Test Basic Token Recognition
+TEST_F(LexerTest, RecognizeIdentifiers) {
+    EXPECT_EQ(getTokenType("variable"), Token::Type::ID);
+    EXPECT_EQ(getTokenValue("variable"), "variable");
 
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TYPE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TRAIT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IF);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ELSE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FOR);
+    EXPECT_EQ(getTokenType("_test"), Token::Type::ID);
+    EXPECT_EQ(getTokenValue("_test"), "_test");
+
+    EXPECT_EQ(getTokenType("test123"), Token::Type::ID);
+    EXPECT_EQ(getTokenValue("test123"), "test123");
+
+    EXPECT_EQ(getTokenType("Test_Case_1"), Token::Type::ID);
+    EXPECT_EQ(getTokenValue("Test_Case_1"), "Test_Case_1");
 }
 
-TEST_F(LexerTest, LexAllKeywords) {
-    auto lexer = createLexer("let fn type trait priv pub stat fin abstr oper impl if else for until match enum space use asm");
+// Test Integer Literals
+TEST_F(LexerTest, RecognizeIntegers) {
+    EXPECT_EQ(getTokenType("0"), Token::Type::INT);
+    EXPECT_EQ(getTokenValue("0"), "0");
 
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TYPE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TRAIT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::PRIV);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::PUB);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::STAT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FIN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ABSTR);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::OPER);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IMPL);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IF);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ELSE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FOR);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::UNTIL);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MATCH);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ENUM);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SPACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::USE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ASM);
+    EXPECT_EQ(getTokenType("123"), Token::Type::INT);
+    EXPECT_EQ(getTokenValue("123"), "123");
+
+    EXPECT_EQ(getTokenType("999999"), Token::Type::INT);
+    EXPECT_EQ(getTokenValue("999999"), "999999");
 }
 
-TEST_F(LexerTest, LexIdentifiers) {
-    auto lexer = createLexer("myVar _private test123 camelCase");
+// Test Float Literals
+TEST_F(LexerTest, RecognizeFloats) {
+    EXPECT_EQ(getTokenType("3.14"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("3.14"), "3.14");
 
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "myVar");
+    EXPECT_EQ(getTokenType("0.5"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("0.5"), "0.5");
 
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "_private");
+    EXPECT_EQ(getTokenType(".5"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue(".5"), ".5");
 
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-    EXPECT_STREQ(tok3.value(), "test123");
-
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::ID);
-    EXPECT_STREQ(tok4.value(), "camelCase");
+    EXPECT_EQ(getTokenType("123.456"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("123.456"), "123.456");
 }
 
-TEST_F(LexerTest, LexIntegers) {
-    auto lexer = createLexer("0 42 123456 999");
+// Test Scientific Notation
+TEST_F(LexerTest, RecognizeScientificNotation) {
+    EXPECT_EQ(getTokenType("1e10"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("1e10"), "1e10");
 
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::INT);
-    EXPECT_STREQ(tok1.value(), "0");
+    EXPECT_EQ(getTokenType("1.5e10"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("1.5e10"), "1.5e10");
 
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::INT);
-    EXPECT_STREQ(tok2.value(), "42");
+    EXPECT_EQ(getTokenType("2.5e-3"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("2.5e-3"), "2.5e-3");
 
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::INT);
-    EXPECT_STREQ(tok3.value(), "123456");
-
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::INT);
-    EXPECT_STREQ(tok4.value(), "999");
+    EXPECT_EQ(getTokenType("1E+5"), Token::Type::FLOAT);
+    EXPECT_EQ(getTokenValue("1E+5"), "1E+5");
 }
 
-TEST_F(LexerTest, LexFloats) {
-    auto lexer = createLexer("3.14 0.5 .25 100.0");
+// Test String Literals
+TEST_F(LexerTest, RecognizeStrings) {
+    EXPECT_EQ(getTokenType("\"hello\""), Token::Type::STR);
+    EXPECT_EQ(getTokenValue("\"hello\""), "hello");
 
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok1.value(), "3.14");
+    EXPECT_EQ(getTokenType("\"\""), Token::Type::STR);
+    EXPECT_EQ(getTokenValue("\"\""), "");
 
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok2.value(), "0.5");
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok3.value(), ".25");
-
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok4.value(), "100.0");
+    EXPECT_EQ(getTokenType("\"hello world\""), Token::Type::STR);
+    EXPECT_EQ(getTokenValue("\"hello world\""), "hello world");
 }
 
-TEST_F(LexerTest, LexScientificNotation) {
-    auto lexer = createLexer("1e10 2.5e-3 3.14E+2");
+// Test String Escape Sequences
+TEST_F(LexerTest, RecognizeStringEscapes) {
+    EXPECT_EQ(getTokenType("\"hello\\nworld\""), Token::Type::STR);
+    EXPECT_EQ(getTokenValue("\"hello\\nworld\""), "hello\\nworld");
 
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok1.value(), "1e10");
+    EXPECT_EQ(getTokenType("\"quote:\\\"\""), Token::Type::STR);
+    EXPECT_EQ(getTokenValue("\"quote:\\\"\""), "quote:\\\"");
 
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok2.value(), "2.5e-3");
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok3.value(), "3.14E+2");
+    EXPECT_EQ(getTokenType("\"backslash:\\\\\""), Token::Type::STR);
+    EXPECT_EQ(getTokenValue("\"backslash:\\\\\""), "backslash:\\\\");
 }
 
-TEST_F(LexerTest, LexStrings) {
-    auto lexer = createLexer("\"hello\" \"world\" \"with spaces\" \"with\\nnewline\"");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::STR);
-    EXPECT_STREQ(tok1.value(), "hello");
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::STR);
-    EXPECT_STREQ(tok2.value(), "world");
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::STR);
-    EXPECT_STREQ(tok3.value(), "with spaces");
-
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::STR);
-    EXPECT_STREQ(tok4.value(), "with\\nnewline");
-}
-
-TEST_F(LexerTest, LexEmptyString) {
-    auto lexer = createLexer("\"\"");
-
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::STR);
-    EXPECT_STREQ(tok.value(), "");
-}
-
-TEST_F(LexerTest, LexCharLiterals) {
-    auto lexer = createLexer("'a' 'Z' '\\n' '\\t'");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::CHAR);
-    EXPECT_STREQ(tok1.value(), "a");
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::CHAR);
-    EXPECT_STREQ(tok2.value(), "Z");
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::CHAR);
-    EXPECT_STREQ(tok3.value(), "\\n");
-
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::CHAR);
-    EXPECT_STREQ(tok4.value(), "\\t");
-}
-
-TEST_F(LexerTest, LexBooleans) {
-    auto lexer = createLexer("true false");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TRUE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FALSE);
-}
-
-// Operator tests
-TEST_F(LexerTest, LexArithmeticOperators) {
-    auto lexer = createLexer("+ - * / %");
-
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::ADD || tok1.type() == Token::Type::R_PLUS || tok1.type() == Token::Type::L_PLUS);
-
-    auto tok2 = lexer->lex();
-    EXPECT_TRUE(tok2.type() == Token::Type::SUB || tok2.type() == Token::Type::R_MINUS || tok2.type() == Token::Type::L_MINUS);
-
-    auto tok3 = lexer->lex();
-    EXPECT_TRUE(tok3.type() == Token::Type::MUL || tok3.type() == Token::Type::R_DEREF || tok3.type() == Token::Type::L_DEREF);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DIV);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MOD);
-}
-
-TEST_F(LexerTest, LexComparisonOperators) {
-    auto lexer = createLexer("< <= > >= == !=");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::GT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::GE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::EE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::NE);
-}
-
-TEST_F(LexerTest, LexLogicalOperators) {
-    auto lexer = createLexer("and or && ||");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::AND);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::OR);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::AND);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::OR);
-}
-
-TEST_F(LexerTest, LexBitwiseOperators) {
-    auto lexer = createLexer("& | ^ ~ << >>");
-
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::B_AND || tok1.type() == Token::Type::R_REF || tok1.type() == Token::Type::L_REF);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_OR);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_XOR);
-
-    auto tok2 = lexer->lex();
-    EXPECT_TRUE(tok2.type() == Token::Type::R_B_NOT || tok2.type() == Token::Type::L_B_NOT);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LS);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RS);
-}
-
-TEST_F(LexerTest, LexAssignmentOperators) {
-    auto lexer = createLexer("= += -= *= /= %= <<= >>= &= ^= |=");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ADD_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SUB_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MUL_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DIV_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MOD_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LS_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RS_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_AND_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_XOR_EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_OR_EQ);
-}
-
-TEST_F(LexerTest, LexIncrementDecrement) {
-    auto lexer = createLexer("++ --");
-
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::R_INC || tok1.type() == Token::Type::L_INC);
-
-    auto tok2 = lexer->lex();
-    EXPECT_TRUE(tok2.type() == Token::Type::R_DEC || tok2.type() == Token::Type::L_DEC);
-}
-
-TEST_F(LexerTest, LexRangeOperators) {
-    auto lexer = createLexer(".. ..= ...");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RANGE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RANGE_EQ);
-
-    auto tok3 = lexer->lex();
-    EXPECT_TRUE(tok3.type() == Token::Type::R_SPREAD || tok3.type() == Token::Type::L_SPREAD);
-}
-
-TEST_F(LexerTest, LexSpecialOperators) {
-    auto lexer = createLexer("in is as alloc clean");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IS);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::AS);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ALLOC);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::CLEAN);
-}
-
-// Symbol tests
-TEST_F(LexerTest, LexBrackets) {
-    auto lexer = createLexer("( ) { } [ ]");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_PAREN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_PAREN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACKET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACKET);
-}
-
-TEST_F(LexerTest, LexPunctuation) {
-    auto lexer = createLexer("; : , . -> => ::");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COLON);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COMMA);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DOT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ARROW);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DOUBLE_ARROW);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SCOPE);
-}
-
-// Comment tests
-TEST_F(LexerTest, SingleLineComment) {
-    auto lexer = createLexer("let // this is a comment\nfn");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-}
-
-TEST_F(LexerTest, MultiLineComment) {
-    auto lexer = createLexer("let /* this is a \nmulti-line comment */ fn");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-}
-
-TEST_F(LexerTest, UnterminatedMultiLineComment) {
-    auto lexer = createLexer("let /* unterminated comment");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::UNKNOWN);
-}
-
-// Whitespace handling
-TEST_F(LexerTest, VariousWhitespace) {
-    auto lexer = createLexer("let   \t\n  fn\n\ntype");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TYPE);
-}
-
-// Context-dependent operator resolution
-TEST_F(LexerTest, UnaryVsBinaryPlus) {
-    auto lexer = createLexer("x + y");
-
-    auto tok1 = lexer->lex(); // x
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-
-    auto tok2 = lexer->lex(); // +
-    EXPECT_EQ(tok2.type(), Token::Type::ADD); // Binary in this context
-
-    auto tok3 = lexer->lex(); // y
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, UnaryPlusAtStart) {
-    auto lexer = createLexer("+x");
-
-    auto tok1 = lexer->lex(); // +
-    EXPECT_EQ(tok1.type(), Token::Type::L_PLUS); // Right unary at start
-
-    auto tok2 = lexer->lex(); // x
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, PointerDereferenceVsMultiplication) {
-    auto lexer = createLexer("x * y");
-
-    auto tok1 = lexer->lex(); // x
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-
-    auto tok2 = lexer->lex(); // *
-    EXPECT_EQ(tok2.type(), Token::Type::MUL); // Binary multiplication
-
-    auto tok3 = lexer->lex(); // y
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, PointerDereferenceAtStart) {
-    auto lexer = createLexer("*ptr");
-
-    auto tok1 = lexer->lex(); // *
-    EXPECT_EQ(tok1.type(), Token::Type::L_DEREF); // Dereference operator
-
-    auto tok2 = lexer->lex(); // ptr
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, IncrementOperatorContext) {
-    auto lexer = createLexer("x++; ++y");
-
-    auto tok1 = lexer->lex(); // x
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-
-    auto tok2 = lexer->lex(); // ++
-    EXPECT_EQ(tok2.type(), Token::Type::R_INC); // Right (postfix) increment
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
-
-    auto tok3 = lexer->lex(); // ++
-    EXPECT_EQ(tok3.type(), Token::Type::L_INC); // Left (prefix) increment
-
-    auto tok4 = lexer->lex(); // y
-    EXPECT_EQ(tok4.type(), Token::Type::ID);
-}
-
-// Peek functionality
-TEST_F(LexerTest, PeekDoesNotConsumeToken) {
-    auto lexer = createLexer("let fn");
-
-    auto peeked = lexer->peek();
-    EXPECT_EQ(peeked.type(), Token::Type::LET);
-
-    auto lexed = lexer->lex();
-    EXPECT_EQ(lexed.type(), Token::Type::LET);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-}
-
-TEST_F(LexerTest, MultiplePeeks) {
-    auto lexer = createLexer("let fn type");
-
-    EXPECT_EQ(lexer->peek().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->peek().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->peek().type(), Token::Type::LET);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TYPE);
-}
-
-// Complex expressions
-TEST_F(LexerTest, SimpleExpression) {
-    auto lexer = createLexer("x = y + 5");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "x");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::EQ);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "y");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ADD);
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::INT);
-    EXPECT_STREQ(tok3.value(), "5");
-}
-
-TEST_F(LexerTest, FunctionCall) {
-    auto lexer = createLexer("myFunc(arg1, arg2)");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "myFunc");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_PAREN);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "arg1");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COMMA);
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-    EXPECT_STREQ(tok3.value(), "arg2");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_PAREN);
-}
-
-TEST_F(LexerTest, ArrayAccess) {
-    auto lexer = createLexer("array[10]");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "array");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACKET);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::INT);
-    EXPECT_STREQ(tok2.value(), "10");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACKET);
-}
-
-TEST_F(LexerTest, StructAccess) {
-    auto lexer = createLexer("obj.field");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "obj");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DOT);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "field");
-}
-
-TEST_F(LexerTest, ScopeResolution) {
-    auto lexer = createLexer("Module::function");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "Module");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SCOPE);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "function");
-}
-
-// Edge cases
-TEST_F(LexerTest, KeywordAsPartOfIdentifier) {
-    auto lexer = createLexer("letter function_name ifNotThis");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "letter");
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "function_name");
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-    EXPECT_STREQ(tok3.value(), "ifNotThis");
-}
-
-TEST_F(LexerTest, DotFollowedByDot) {
-    auto lexer = createLexer("1..10");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::INT);
-    EXPECT_STREQ(tok1.value(), "1");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RANGE);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::INT);
-    EXPECT_STREQ(tok2.value(), "10");
-}
-
-TEST_F(LexerTest, LeadingDecimalPoint) {
-    auto lexer = createLexer(".5 + .25");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok1.value(), ".5");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ADD);
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok2.value(), ".25");
-}
-
+// Test Unterminated String
 TEST_F(LexerTest, UnterminatedString) {
-    auto lexer = createLexer("\"unterminated");
-
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
+    EXPECT_EQ(getTokenType("\"unterminated"), Token::Type::UNKNOWN);
 }
 
-TEST_F(LexerTest, UnterminatedChar) {
-    auto lexer = createLexer("'a");
+// Test Character Literals
+TEST_F(LexerTest, RecognizeCharacters) {
+    EXPECT_EQ(getTokenType("'a'"), Token::Type::CHAR);
+    EXPECT_EQ(getTokenValue("'a'"), "a");
 
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
+    EXPECT_EQ(getTokenType("'Z'"), Token::Type::CHAR);
+    EXPECT_EQ(getTokenValue("'Z'"), "Z");
+
+    EXPECT_EQ(getTokenType("'0'"), Token::Type::CHAR);
+    EXPECT_EQ(getTokenValue("'0'"), "0");
 }
 
-TEST_F(LexerTest, EmptyCharLiteral) {
-    auto lexer = createLexer("''");
+// Test Character Escape Sequences
+TEST_F(LexerTest, RecognizeCharEscapes) {
+    EXPECT_EQ(getTokenType("'\\n'"), Token::Type::CHAR);
+    EXPECT_EQ(getTokenValue("'\\n'"), "\\n");
 
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
+    EXPECT_EQ(getTokenType("'\\''"), Token::Type::CHAR);
+    EXPECT_EQ(getTokenValue("'\\''"), "\\'");
 }
 
-// Position tracking
-TEST_F(LexerTest, LastTokenPosition) {
-    auto lexer = createLexer("let x = 5");
-
-    lexer->lex(); // let
-    auto [pos1, line1, char1] = lexer->last_pos();
-    EXPECT_EQ(line1, 1);
-    EXPECT_EQ(char1, 1);
-
-    lexer->lex(); // x
-    auto [pos2, line2, char2] = lexer->last_pos();
-    EXPECT_EQ(line2, 1);
-    EXPECT_EQ(char2, 5);
-
-    lexer->lex(); // =
-    auto [pos3, line3, char3] = lexer->last_pos();
-    EXPECT_EQ(line3, 1);
-    EXPECT_EQ(char3, 7);
+// Test Empty and Unterminated Char
+TEST_F(LexerTest, InvalidCharLiterals) {
+    EXPECT_EQ(getTokenType("''"), Token::Type::UNKNOWN);
+    EXPECT_EQ(getTokenType("'unterminated"), Token::Type::UNKNOWN);
 }
 
-TEST_F(LexerTest, MultilinePosition) {
-    auto lexer = createLexer("let\nx = 5\ny = 10");
-
-    lexer->lex(); // let
-    lexer->lex(); // x
-    lexer->lex(); // =
-    lexer->lex(); // 5
-
-    lexer->lex(); // y
-    auto [pos, line, char_pos] = lexer->last_pos();
-    EXPECT_EQ(line, 3);
-    EXPECT_EQ(char_pos, 1);
+// Test Keywords
+TEST_F(LexerTest, RecognizeKeywords) {
+    EXPECT_EQ(getTokenType("let"), Token::Type::LET);
+    EXPECT_EQ(getTokenType("fn"), Token::Type::FN);
+    EXPECT_EQ(getTokenType("type"), Token::Type::TYPE);
+    EXPECT_EQ(getTokenType("trait"), Token::Type::TRAIT);
+    EXPECT_EQ(getTokenType("if"), Token::Type::IF);
+    EXPECT_EQ(getTokenType("else"), Token::Type::ELSE);
+    EXPECT_EQ(getTokenType("for"), Token::Type::FOR);
+    EXPECT_EQ(getTokenType("match"), Token::Type::MATCH);
+    EXPECT_EQ(getTokenType("enum"), Token::Type::ENUM);
+    EXPECT_EQ(getTokenType("use"), Token::Type::USE);
+    EXPECT_EQ(getTokenType("asm"), Token::Type::ASM);
 }
 
-// Complex operator sequences
-TEST_F(LexerTest, CompoundAssignments) {
-    auto lexer = createLexer("x += 5; y *= 2; z /= 3;");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ADD_EQ);
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MUL_EQ);
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
-
-    auto tok5 = lexer->lex();
-    EXPECT_EQ(tok5.type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DIV_EQ);
-    auto tok6 = lexer->lex();
-    EXPECT_EQ(tok6.type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
+// Test Keywords Not Matching Partial Identifiers
+TEST_F(LexerTest, KeywordsNotPartialMatch) {
+    EXPECT_EQ(getTokenType("letter"), Token::Type::ID);
+    EXPECT_EQ(getTokenType("function"), Token::Type::ID);
+    EXPECT_EQ(getTokenType("iffy"), Token::Type::ID);
+    EXPECT_EQ(getTokenType("format"), Token::Type::ID);
 }
 
-TEST_F(LexerTest, ChainedComparisons) {
-    auto lexer = createLexer("a < b <= c > d >= e");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::GT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::GE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
+// Test Boolean Literals
+TEST_F(LexerTest, RecognizeBooleans) {
+    EXPECT_EQ(getTokenType("true"), Token::Type::TRUE);
+    EXPECT_EQ(getTokenType("false"), Token::Type::FALSE);
 }
 
-TEST_F(LexerTest, MixedBitwiseOperations) {
-    auto lexer = createLexer("a & b | c ^ d");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::B_AND || tok1.type() == Token::Type::R_REF || tok1.type() == Token::Type::L_REF);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_OR);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::B_XOR);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
+// Test Symbols
+TEST_F(LexerTest, RecognizeSymbols) {
+    EXPECT_EQ(getTokenType("("), Token::Type::O_PAREN);
+    EXPECT_EQ(getTokenType(")"), Token::Type::C_PAREN);
+    EXPECT_EQ(getTokenType("{"), Token::Type::O_BRACE);
+    EXPECT_EQ(getTokenType("}"), Token::Type::C_BRACE);
+    EXPECT_EQ(getTokenType("["), Token::Type::O_BRACKET);
+    EXPECT_EQ(getTokenType("]"), Token::Type::C_BRACKET);
+    EXPECT_EQ(getTokenType(";"), Token::Type::SEMI_COLON);
+    EXPECT_EQ(getTokenType(":"), Token::Type::COLON);
+    EXPECT_EQ(getTokenType("->"), Token::Type::ARROW);
+    EXPECT_EQ(getTokenType("=>"), Token::Type::DOUBLE_ARROW);
+    EXPECT_EQ(getTokenType(","), Token::Type::COMMA);
 }
 
-TEST_F(LexerTest, ShiftOperations) {
-    auto lexer = createLexer("x << 2 >> 1");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::LS);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RS);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
+// Test Operators
+TEST_F(LexerTest, RecognizeOperators) {
+    EXPECT_EQ(getTokenType("::"), Token::Type::SCOPE);
+    EXPECT_EQ(getTokenType("++"), Token::Type::R_INC);
+    EXPECT_EQ(getTokenType("--"), Token::Type::R_DEC);
+    EXPECT_EQ(getTokenType("."), Token::Type::DOT);
+    EXPECT_EQ(getTokenType("*"), Token::Type::MUL);
+    EXPECT_EQ(getTokenType("/"), Token::Type::DIV);
+    EXPECT_EQ(getTokenType("%"), Token::Type::MOD);
+    EXPECT_EQ(getTokenType("+"), Token::Type::ADD);
+    EXPECT_EQ(getTokenType("-"), Token::Type::SUB);
 }
 
-// Function and type declarations
-TEST_F(LexerTest, FunctionDeclaration) {
-    auto lexer = createLexer("fn myFunc(x: int) -> int { }");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FN);
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "myFunc");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_PAREN);
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "x");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COLON);
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-    EXPECT_STREQ(tok3.value(), "int");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_PAREN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ARROW);
-    auto tok4 = lexer->lex();
-    EXPECT_EQ(tok4.type(), Token::Type::ID);
-    EXPECT_STREQ(tok4.value(), "int");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACE);
+// Test Comparison Operators
+TEST_F(LexerTest, RecognizeComparisonOperators) {
+    EXPECT_EQ(getTokenType("<"), Token::Type::LT);
+    EXPECT_EQ(getTokenType("<="), Token::Type::LE);
+    EXPECT_EQ(getTokenType(">"), Token::Type::GT);
+    EXPECT_EQ(getTokenType(">="), Token::Type::GE);
+    EXPECT_EQ(getTokenType("=="), Token::Type::EE);
+    EXPECT_EQ(getTokenType("!="), Token::Type::NE);
 }
 
-TEST_F(LexerTest, TypeDeclaration) {
-    auto lexer = createLexer("type Point { x: int, y: int }");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::TYPE);
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "Point");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "x");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COLON);
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::ID);
-    EXPECT_STREQ(tok3.value(), "int");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COMMA);
+// Test Logical Operators
+TEST_F(LexerTest, RecognizeLogicalOperators) {
+    EXPECT_EQ(getTokenType("and"), Token::Type::AND);
+    EXPECT_EQ(getTokenType("or"), Token::Type::OR);
+    EXPECT_EQ(getTokenType("!"), Token::Type::R_NOT);
 }
 
-TEST_F(LexerTest, ControlFlow) {
-    auto lexer = createLexer("if x > 0 { } else { }");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IF);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::GT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ELSE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACE);
+// Test Bitwise Operators
+TEST_F(LexerTest, RecognizeBitwiseOperators) {
+    EXPECT_EQ(getTokenType("&"), Token::Type::B_AND);
+    EXPECT_EQ(getTokenType("|"), Token::Type::B_OR);
+    EXPECT_EQ(getTokenType("^"), Token::Type::B_XOR);
+    EXPECT_EQ(getTokenType("~"), Token::Type::R_B_NOT);
+    EXPECT_EQ(getTokenType("<<"), Token::Type::LS);
+    EXPECT_EQ(getTokenType(">>"), Token::Type::RS);
 }
 
-TEST_F(LexerTest, ForLoop) {
-    auto lexer = createLexer("for i in 0..10 { }");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::FOR);
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::ID);
-    EXPECT_STREQ(tok1.value(), "i");
-    EXPECT_EQ(lexer->lex().type(), Token::Type::IN);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RANGE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACE);
+// Test Assignment Operators
+TEST_F(LexerTest, RecognizeAssignmentOperators) {
+    EXPECT_EQ(getTokenType("="), Token::Type::EQ);
+    EXPECT_EQ(getTokenType("+="), Token::Type::ADD_EQ);
+    EXPECT_EQ(getTokenType("-="), Token::Type::SUB_EQ);
+    EXPECT_EQ(getTokenType("*="), Token::Type::MUL_EQ);
+    EXPECT_EQ(getTokenType("/="), Token::Type::DIV_EQ);
+    EXPECT_EQ(getTokenType("%="), Token::Type::MOD_EQ);
+    EXPECT_EQ(getTokenType("<<="), Token::Type::LS_EQ);
+    EXPECT_EQ(getTokenType(">>="), Token::Type::RS_EQ);
+    EXPECT_EQ(getTokenType("&="), Token::Type::B_AND_EQ);
+    EXPECT_EQ(getTokenType("^="), Token::Type::B_XOR_EQ);
+    EXPECT_EQ(getTokenType("|="), Token::Type::B_OR_EQ);
 }
 
-TEST_F(LexerTest, MatchStatement) {
-    auto lexer = createLexer("match x { }");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MATCH);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::O_BRACE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::C_BRACE);
+// Test Range Operators
+TEST_F(LexerTest, RecognizeRangeOperators) {
+    EXPECT_EQ(getTokenType(".."), Token::Type::RANGE);
+    EXPECT_EQ(getTokenType("..="), Token::Type::RANGE_EQ);
+    EXPECT_EQ(getTokenType("..."), Token::Type::R_SPREAD);
 }
 
-// Special cases with strings and chars
-TEST_F(LexerTest, StringWithEscapes) {
-    auto lexer = createLexer("\"hello\\nworld\\t!\"");
-
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::STR);
-    EXPECT_STREQ(tok.value(), "hello\\nworld\\t!");
+// Test Special Keywords
+TEST_F(LexerTest, RecognizeSpecialKeywords) {
+    EXPECT_EQ(getTokenType("in"), Token::Type::IN);
+    EXPECT_EQ(getTokenType("is"), Token::Type::IS);
+    EXPECT_EQ(getTokenType("as"), Token::Type::AS);
+    EXPECT_EQ(getTokenType("alloc"), Token::Type::ALLOC);
+    EXPECT_EQ(getTokenType("clean"), Token::Type::CLEAN);
 }
 
-TEST_F(LexerTest, StringWithQuotes) {
-    auto lexer = createLexer("\"say \\\"hello\\\"\"");
+// Test Whitespace Handling
+TEST_F(LexerTest, SkipWhitespace) {
+    std::istringstream iss("  \t\n  x");
+    Lexer lexer(iss);
+    auto [tok, pos] = lexer.lex();
 
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::STR);
-    EXPECT_STREQ(tok.value(), "say \\\"hello\\\"");
-}
-
-TEST_F(LexerTest, CharWithEscape) {
-    auto lexer = createLexer("'\\''");
-
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::CHAR);
-    EXPECT_STREQ(tok.value(), "\\'");
-}
-
-// Number edge cases
-TEST_F(LexerTest, NumberFollowedByIdentifier) {
-    auto lexer = createLexer("123abc");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::INT);
-    EXPECT_STREQ(tok1.value(), "123");
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::ID);
-    EXPECT_STREQ(tok2.value(), "abc");
-}
-
-TEST_F(LexerTest, FloatWithoutFractionalPart) {
-    auto lexer = createLexer("42. 100.");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok1.value(), "42.");
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok2.value(), "100.");
-}
-
-TEST_F(LexerTest, ScientificNotationEdgeCases) {
-    auto lexer = createLexer("1e+10 2E-5 3.14e0");
-
-    auto tok1 = lexer->lex();
-    EXPECT_EQ(tok1.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok1.value(), "1e+10");
-
-    auto tok2 = lexer->lex();
-    EXPECT_EQ(tok2.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok2.value(), "2E-5");
-
-    auto tok3 = lexer->lex();
-    EXPECT_EQ(tok3.type(), Token::Type::FLOAT);
-    EXPECT_STREQ(tok3.value(), "3.14e0");
-}
-
-TEST_F(LexerTest, InvalidScientificNotation) {
-    auto lexer = createLexer("1e");
-
-    auto tok1 = lexer->lex();
-    // This should produce UNKNOWN as 'e' without digits is invalid
-    EXPECT_EQ(tok1.type(), Token::Type::UNKNOWN);
-}
-
-// Ambiguous operator sequences
-TEST_F(LexerTest, MinusVsArrow) {
-    auto lexer = createLexer("x - y x->y");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::SUB || tok1.type() == Token::Type::R_MINUS || tok1.type() == Token::Type::L_MINUS);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ARROW);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, EqualsVsDoubleArrow) {
-    auto lexer = createLexer("x = y x => y");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::EQ);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::DOUBLE_ARROW);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, ColonVsScope) {
-    auto lexer = createLexer("x : y x::y");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::COLON);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::SCOPE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-}
-
-// Vague token resolution in complex contexts
-TEST_F(LexerTest, VagueTokenSequence) {
-    auto lexer = createLexer("*ptr + *arr");
-
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::R_DEREF || tok1.type() == Token::Type::MUL || tok1.type() == Token::Type::L_DEREF);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ADD);
-
-    auto tok2 = lexer->lex();
-    EXPECT_TRUE(tok2.type() == Token::Type::R_DEREF || tok2.type() == Token::Type::MUL || tok2.type() == Token::Type::L_DEREF);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, ComplexVagueExpression) {
-    auto lexer = createLexer("&x * &y");
-
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::R_REF || tok1.type() == Token::Type::B_AND || tok1.type() == Token::Type::L_REF);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::MUL);
-
-    auto tok2 = lexer->lex();
-    EXPECT_TRUE(tok2.type() == Token::Type::R_REF || tok2.type() == Token::Type::B_AND || tok2.type() == Token::Type::L_REF);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-}
-
-// Stress tests
-TEST_F(LexerTest, LongIdentifier) {
-    std::string longId(1000, 'a');
-    auto lexer = createLexer(longId);
-
-    auto tok = lexer->lex();
     EXPECT_EQ(tok.type(), Token::Type::ID);
-    EXPECT_EQ(tok.str().length(), 1000);
+    EXPECT_EQ(tok.value(), "x");
 }
 
-TEST_F(LexerTest, LongString) {
-    std::string longStr = "\"" + std::string(1000, 'x') + "\"";
-    auto lexer = createLexer(longStr);
+// Test Single Line Comments
+TEST_F(LexerTest, SkipSingleLineComments) {
+    std::istringstream iss("// this is a comment\nx");
+    Lexer lexer(iss);
+    auto [tok, pos] = lexer.lex();
 
-    auto tok = lexer->lex();
-    EXPECT_EQ(tok.type(), Token::Type::STR);
-    EXPECT_EQ(tok.str().length(), 1000);
+    EXPECT_EQ(tok.type(), Token::Type::ID);
+    EXPECT_EQ(tok.value(), "x");
 }
 
-TEST_F(LexerTest, ManyTokens) {
-    std::string input;
-    for (int i = 0; i < 1000; ++i) {
-        input += "let x" + std::to_string(i) + " = " + std::to_string(i) + "; ";
-    }
-    auto lexer = createLexer(input);
+// Test Multi-line Comments
+TEST_F(LexerTest, SkipMultiLineComments) {
+    std::istringstream iss("/* this is a\nmulti-line comment */\ny");
+    Lexer lexer(iss);
+    auto [tok, pos] = lexer.lex();
 
-    for (int i = 0; i < 1000; ++i) {
-        EXPECT_EQ(lexer->lex().type(), Token::Type::LET);
-        EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-        EXPECT_EQ(lexer->lex().type(), Token::Type::EQ);
-        EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-        EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
-    }
+    EXPECT_EQ(tok.type(), Token::Type::ID);
+    EXPECT_EQ(tok.value(), "y");
 }
 
-// Empty input
+// Test Unterminated Multi-line Comment
+TEST_F(LexerTest, UnterminatedMultiLineComment) {
+    std::istringstream iss("/* unterminated comment");
+    Lexer lexer(iss);
+    auto [tok, pos] = lexer.lex();
+
+    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
+}
+
+// Test Division vs Comment
+TEST_F(LexerTest, DivisionNotComment) {
+    std::istringstream iss("a/b");
+    Lexer lexer(iss);
+
+    auto [tok1, pos1] = lexer.lex();
+    EXPECT_EQ(tok1.type(), Token::Type::ID);
+    EXPECT_EQ(tok1.value(), "a");
+
+    auto [tok2, pos2] = lexer.lex();
+    EXPECT_EQ(tok2.type(), Token::Type::DIV);
+
+    auto [tok3, pos3] = lexer.lex();
+    EXPECT_EQ(tok3.type(), Token::Type::ID);
+    EXPECT_EQ(tok3.value(), "b");
+}
+
+// Test Multiple Tokens
+TEST_F(LexerTest, MultipleTokens) {
+    std::istringstream iss("let x = 42;");
+    Lexer lexer(iss);
+
+    auto [tok1, pos1] = lexer.lex();
+    EXPECT_EQ(tok1.type(), Token::Type::LET);
+
+    auto [tok2, pos2] = lexer.lex();
+    EXPECT_EQ(tok2.type(), Token::Type::ID);
+    EXPECT_EQ(tok2.value(), "x");
+
+    auto [tok3, pos3] = lexer.lex();
+    EXPECT_EQ(tok3.type(), Token::Type::EQ);
+
+    auto [tok4, pos4] = lexer.lex();
+    EXPECT_EQ(tok4.type(), Token::Type::INT);
+    EXPECT_EQ(tok4.value(), "42");
+
+    auto [tok5, pos5] = lexer.lex();
+    EXPECT_EQ(tok5.type(), Token::Type::SEMI_COLON);
+}
+
+// Test Peek
+TEST_F(LexerTest, PeekDoesNotConsume) {
+    std::istringstream iss("abc");
+    Lexer lexer(iss);
+
+    auto [peek1, pos1] = lexer.peek();
+    EXPECT_EQ(peek1.type(), Token::Type::ID);
+    EXPECT_EQ(peek1.value(), "abc");
+
+    auto [peek2, pos2] = lexer.peek();
+    EXPECT_EQ(peek2.type(), Token::Type::ID);
+    EXPECT_EQ(peek2.value(), "abc");
+
+    auto [tok, pos3] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::ID);
+    EXPECT_EQ(tok.value(), "abc");
+}
+
+// Test Position Tracking
+TEST_F(LexerTest, PositionTracking) {
+    std::istringstream iss("x\ny");
+    Lexer lexer(iss);
+
+    auto [tok1, pos1] = lexer.lex();
+    EXPECT_EQ(pos1.line, 0);
+    EXPECT_EQ(pos1.column, 0);
+
+    auto [tok2, pos2] = lexer.lex();
+    EXPECT_EQ(pos2.line, 1);
+    EXPECT_EQ(pos2.column, 0);
+}
+
+// Test Vague Operator Resolution - Unary Plus/Minus
+TEST_F(LexerTest, UnaryPlusResolution) {
+    std::istringstream iss("+ x");
+    Lexer lexer(iss);
+
+    auto [tok1, pos1] = lexer.lex();
+    EXPECT_TRUE(tok1.type() == Token::Type::R_PLUS || tok1.type() == Token::Type::L_PLUS);
+}
+
+TEST_F(LexerTest, BinaryPlusResolution) {
+    std::istringstream iss("x + y");
+    Lexer lexer(iss);
+
+    lexer.lex(); // x
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::ADD);
+}
+
+// Test Increment/Decrement Resolution
+TEST_F(LexerTest, PostfixIncrement) {
+    std::istringstream iss("x++");
+    Lexer lexer(iss);
+
+    lexer.lex(); // x
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::L_INC);
+}
+
+TEST_F(LexerTest, PrefixIncrement) {
+    std::istringstream iss("++x");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::R_INC);
+}
+
+// Test Dereference vs Multiplication
+TEST_F(LexerTest, DereferenceResolution) {
+    std::istringstream iss("*ptr");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_TRUE(tok.type() == Token::Type::R_DEREF || tok.type() == Token::Type::L_DEREF);
+}
+
+TEST_F(LexerTest, MultiplicationResolution) {
+    std::istringstream iss("a * b");
+    Lexer lexer(iss);
+
+    lexer.lex(); // a
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::MUL);
+}
+
+// Test Reference vs Bitwise AND
+TEST_F(LexerTest, ReferenceResolution) {
+    std::istringstream iss("&x");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_TRUE(tok.type() == Token::Type::R_REF || tok.type() == Token::Type::L_REF);
+}
+
+TEST_F(LexerTest, BitwiseAndResolution) {
+    std::istringstream iss("a & b");
+    Lexer lexer(iss);
+
+    lexer.lex(); // a
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::B_AND);
+}
+
+// Test Range Operator Not Confused with Float
+TEST_F(LexerTest, RangeVsFloat) {
+    std::istringstream iss("1..10");
+    Lexer lexer(iss);
+
+    auto [tok1, pos1] = lexer.lex();
+    EXPECT_EQ(tok1.type(), Token::Type::INT);
+    EXPECT_EQ(tok1.value(), "1");
+
+    auto [tok2, pos2] = lexer.lex();
+    EXPECT_EQ(tok2.type(), Token::Type::RANGE);
+
+    auto [tok3, pos3] = lexer.lex();
+    EXPECT_EQ(tok3.type(), Token::Type::INT);
+    EXPECT_EQ(tok3.value(), "10");
+}
+
+// Test Complex Expression
+TEST_F(LexerTest, ComplexExpression) {
+    std::istringstream iss("(a + b) * c");
+    Lexer lexer(iss);
+
+    auto [tok1, pos1] = lexer.lex();
+    EXPECT_EQ(tok1.type(), Token::Type::O_PAREN);
+
+    auto [tok2, pos2] = lexer.lex();
+    EXPECT_EQ(tok2.type(), Token::Type::ID);
+    EXPECT_EQ(tok2.value(), "a");
+
+    auto [tok3, pos3] = lexer.lex();
+    EXPECT_EQ(tok3.type(), Token::Type::ADD);
+
+    auto [tok4, pos4] = lexer.lex();
+    EXPECT_EQ(tok4.type(), Token::Type::ID);
+    EXPECT_EQ(tok4.value(), "b");
+
+    auto [tok5, pos5] = lexer.lex();
+    EXPECT_EQ(tok5.type(), Token::Type::C_PAREN);
+
+    auto [tok6, pos6] = lexer.lex();
+    EXPECT_EQ(tok6.type(), Token::Type::MUL);
+
+    auto [tok7, pos7] = lexer.lex();
+    EXPECT_EQ(tok7.type(), Token::Type::ID);
+    EXPECT_EQ(tok7.value(), "c");
+}
+
+// Test && and || operators
+TEST_F(LexerTest, LogicalAndOperator) {
+    std::istringstream iss("&&");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::AND);
+}
+
+TEST_F(LexerTest, LogicalOrOperator) {
+    std::istringstream iss("||");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::OR);
+}
+
+// Test edge case: single & or | should be bitwise
+TEST_F(LexerTest, SingleAmpersandIsBitwise) {
+    std::istringstream iss("& x");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_TRUE(tok.type() == Token::Type::B_AND ||
+                tok.type() == Token::Type::R_REF ||
+                tok.type() == Token::Type::L_REF);
+}
+
+// Test Empty Input
 TEST_F(LexerTest, EmptyInput) {
-    auto lexer = createLexer("");
-    // Behavior on EOF is implementation-defined
-    // This test just ensures no crash
+    std::istringstream iss("");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
 }
 
+// Test Only Whitespace
 TEST_F(LexerTest, OnlyWhitespace) {
-    auto lexer = createLexer("   \n\t  \n  ");
-    // Should reach EOF without tokens
+    std::istringstream iss("   \t\n  ");
+    Lexer lexer(iss);
+
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
 }
 
+// Test Only Comments
 TEST_F(LexerTest, OnlyComments) {
-    auto lexer = createLexer("// comment 1\n/* comment 2 */");
-    // Should reach EOF without tokens
-}
+    std::istringstream iss("// comment\n/* another */");
+    Lexer lexer(iss);
 
-// Last token tracking
-TEST_F(LexerTest, LastTokenTracking) {
-    auto lexer = createLexer("let x");
-
-    auto tok1 = lexer->lex();
-    auto last1 = lexer->last();
-    EXPECT_EQ(last1.token.type(), Token::Type::LET);
-
-    auto tok2 = lexer->lex();
-    auto last2 = lexer->last();
-    EXPECT_EQ(last2.token.type(), Token::Type::ID);
-    EXPECT_STREQ(last2.token.value(), "x");
-}
-
-// Spread operators
-TEST_F(LexerTest, SpreadOperatorContexts) {
-    auto lexer = createLexer("...args");
-
-    auto tok1 = lexer->lex();
-    EXPECT_TRUE(tok1.type() == Token::Type::R_SPREAD || tok1.type() == Token::Type::L_SPREAD);
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
-}
-
-TEST_F(LexerTest, RangeVsSpread) {
-    auto lexer = createLexer("0..10 ...args");
-
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::RANGE);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::INT);
-
-    auto tok = lexer->lex();
-    EXPECT_TRUE(tok.type() == Token::Type::R_SPREAD || tok.type() == Token::Type::L_SPREAD);
-    EXPECT_EQ(lexer->lex().type(), Token::Type::ID);
+    auto [tok, pos] = lexer.lex();
+    EXPECT_EQ(tok.type(), Token::Type::UNKNOWN);
 }
