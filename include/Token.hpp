@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 
 namespace flynt {
@@ -33,8 +34,6 @@ namespace flynt {
 
 			LET,
 			FN,
-			TEMPL,
-			IDEA,
 			TYPE,
 			TRAIT,
 			PRIV,
@@ -153,8 +152,6 @@ namespace flynt {
 
 			"let",
 			"fn",
-			"templ",
-			"idea",
 			"type",
 			"trait",
 			"priv",
@@ -263,6 +260,7 @@ namespace flynt {
 		Token &operator=(Token &&) = default;
 
 		const char *value() const;
+		const std::string &str() const;
 		Type type() const;
 
 		bool symbol() const;

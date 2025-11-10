@@ -504,3 +504,7 @@ unsigned flynt::Token::follow_options() const {
 unsigned flynt::Token::option() const {
 	return left() ? 0b100 : right() ? 0b010 : binary() ? 0b001 : 0;
 }
+
+const std::string &flynt::Token::str() const {
+	return _value;
+}
