@@ -398,10 +398,12 @@ TEST_F(LexerTest, IncrementOperatorContext) {
     EXPECT_EQ(tok1.type(), Token::Type::ID);
 
     auto tok2 = lexer->lex(); // ++
-    EXPECT_EQ(tok2.type(), Token::Type::R_INC); // Left (postfix) increment
+    EXPECT_EQ(tok2.type(), Token::Type::R_INC); // Right (postfix) increment
+
+    EXPECT_EQ(lexer->lex().type(), Token::Type::SEMI_COLON);
 
     auto tok3 = lexer->lex(); // ++
-    EXPECT_EQ(tok3.type(), Token::Type::L_INC); // Right (prefix) increment
+    EXPECT_EQ(tok3.type(), Token::Type::L_INC); // Left (prefix) increment
 
     auto tok4 = lexer->lex(); // y
     EXPECT_EQ(tok4.type(), Token::Type::ID);
@@ -591,18 +593,18 @@ TEST_F(LexerTest, LastTokenPosition) {
 
     lexer->lex(); // let
     auto [pos1, line1, char1] = lexer->last_pos();
-    EXPECT_EQ(line1, 0);
-    EXPECT_EQ(char1, 0);
+    EXPECT_EQ(line1, 1);
+    EXPECT_EQ(char1, 1);
 
     lexer->lex(); // x
     auto [pos2, line2, char2] = lexer->last_pos();
-    EXPECT_EQ(line2, 0);
-    EXPECT_EQ(char2, 4);
+    EXPECT_EQ(line2, 1);
+    EXPECT_EQ(char2, 5);
 
     lexer->lex(); // =
     auto [pos3, line3, char3] = lexer->last_pos();
-    EXPECT_EQ(line3, 0);
-    EXPECT_EQ(char3, 6);
+    EXPECT_EQ(line3, 1);
+    EXPECT_EQ(char3, 7);
 }
 
 TEST_F(LexerTest, MultilinePosition) {
@@ -615,7 +617,8 @@ TEST_F(LexerTest, MultilinePosition) {
 
     lexer->lex(); // y
     auto [pos, line, char_pos] = lexer->last_pos();
-    // Note: Line tracking may not work as expected due to uninitialized counters
+    EXPECT_EQ(line, 3);
+    EXPECT_EQ(char_pos, 1);
 }
 
 // Complex operator sequences
