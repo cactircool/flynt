@@ -9,7 +9,10 @@
 
 flynt::Lexer::Lexer(std::istream &in) : _buffer(), _in(in), _options(LEFT) {}
 
-flynt::Token::Type flynt::Lexer::read_known() {
+flynt::Lexer::FatToken flynt::Lexer::read_known() {
+	std::streampos pos = _in.tellg();
+	size_t lc = _line_ctr, cc = _char_ctr;
+
 	constexpr size_t numValues = sizeof(Token::_values) / sizeof(*Token::_values);
 	auto is_ident_char = [](char c) {
 		return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
@@ -53,12 +56,17 @@ flynt::Token::Type flynt::Lexer::read_known() {
 	if (candidate == -1) {
 		_in.clear();
 		_in.seekg(start);
-		return Token::Type::UNKNOWN;
+		return {};
 	}
 
 	_in.clear();
 	_in.seekg(start + static_cast<std::streamoff>(candidateLen));
-	return static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate);
+	return FatToken(
+		flynt::Token(static_cast<Token::Type>(static_cast<int>(Token::Type::TRUE) + candidate)),
+		pos,
+		lc,
+		cc
+	);
 }
 
 flynt::Token flynt::Lexer::peek() {
@@ -66,10 +74,10 @@ flynt::Token flynt::Lexer::peek() {
 	size_t line = _line_ctr, c = _char_ctr;
 	auto tok = lex();
 	_buffer.push_back(FatToken {
-		.token = tok,
-		.pos = pos,
-		.line = line,
-		.character = c,
+		tok,
+		pos,
+		line,
+		c,
 	});
 	return tok;
 }
@@ -123,12 +131,7 @@ flynt::Lexer::FatToken flynt::Lexer::dumb_lex() {
 			}
 
 			if (!endFound) {
-				return FatToken {
-					.token = Token(Token::Type::UNKNOWN),
-					.pos = -1,
-					.line = 0,
-					.character = 0,
-				};
+				return {};
 			}
 		}
 		else {
@@ -145,12 +148,12 @@ flynt::Lexer::FatToken flynt::Lexer::dumb_lex() {
 		get(c);
 		char n;
 		if (_in.get(n) && c == n) {
-			return FatToken {
-				.token = Token(c == '&' ? Token::Type::AND : Token::Type::OR),
-				.pos = pos,
-				.line = lc,
-				.character = cc,
-			};
+			return FatToken(
+				Token(c == '&' ? Token::Type::AND : Token::Type::OR),
+				pos,
+				lc,
+				cc
+			);
 		} else {
 			_in.clear();
 			_in.seekg(-2, std::ios::cur);
@@ -177,18 +180,13 @@ flynt::Lexer::FatToken flynt::Lexer::dumb_lex() {
 			get();
 		}
 		return FatToken {
-			.token = Token(Token::Type::ID, buf),
-			.pos = pos,
-			.line = lc,
-			.character = cc,
+			Token(Token::Type::ID, buf),
+			pos,
+			lc,
+			cc,
 		};
 	}
-	return FatToken {
-		.token = Token(Token::Type::UNKNOWN),
-		.pos = -1,
-		.line = 0,
-		.character = 0,
-	};
+	return {};
 }
 
 flynt::Token flynt::Lexer::remove_top() {
@@ -238,8 +236,8 @@ flynt::Token flynt::Lexer::lex() {
 
 	_buffer.push_back(tok);
 	for (size_t i = 0; i < _buffer.size(); ++i) {
-		unsigned prev_ops = i == 0 ? _options : _buffer[i - 1].follow_options();
-		unsigned next_ops = i == _buffer.size() - 1 || _buffer[i + 1].vague() ? 0b111 : _buffer[i + 1].precede_options();
+		unsigned prev_ops = i == 0 ? _options : _buffer[i - 1].token.follow_options();
+		unsigned next_ops = i == _buffer.size() - 1 || _buffer[i + 1].token.vague() ? 0b111 : _buffer[i + 1].token.precede_options();
 		unsigned constraint = prev_ops & next_ops;
 		bool force = !is_power_of_2(constraint);
 		Token::Type old_type = _buffer[i].token.type();
@@ -271,19 +269,19 @@ flynt::Lexer::FatToken flynt::Lexer::read_string() {
 			} else {
 				// Unexpected end of input after backslash
 				return FatToken {
-					.token = Token(Token::Type::UNKNOWN),
-					.pos = pos,
-					.line = lc,
-					.character = cc,
+					Token(Token::Type::UNKNOWN),
+					pos,
+					lc,
+					cc,
 				};
 			}
 		} else if (c == '"') {
 			// End of string
 			return FatToken {
-				.token = Token(Token::Type::STR, value),
-				.pos = pos,
-				.line = lc,
-				.character = cc,
+				Token(Token::Type::STR, value),
+				pos,
+				lc,
+				cc,
 			};
 		} else {
 			value.push_back(c);
@@ -292,10 +290,10 @@ flynt::Lexer::FatToken flynt::Lexer::read_string() {
 
 	// Unterminated string
 	return FatToken {
-		.token = Token(Token::Type::UNKNOWN),
-		.pos = pos,
-		.line = lc,
-		.character = cc,
+		Token(Token::Type::UNKNOWN),
+		pos,
+		lc,
+		cc,
 	};
 }
 
@@ -316,10 +314,10 @@ flynt::Lexer::FatToken flynt::Lexer::read_char() {
 			} else {
 				// Unexpected end of input after backslash
 				return FatToken {
-					.token = Token(Token::Type::UNKNOWN),
-					.pos = pos,
-					.line = lc,
-					.character = cc,
+					Token(Token::Type::UNKNOWN),
+					pos,
+					lc,
+					cc,
 				};
 			}
 		} else if (c == '\'') {
@@ -327,17 +325,17 @@ flynt::Lexer::FatToken flynt::Lexer::read_char() {
 			if (value.empty()) {
 				// Empty char literal
 				return FatToken {
-					.token = Token(Token::Type::UNKNOWN),
-					.pos = pos,
-					.line = lc,
-					.character = cc,
+					Token(Token::Type::UNKNOWN),
+					pos,
+					lc,
+					cc,
 				};
 			}
 			return FatToken {
-				.token = Token(Token::Type::CHAR, value),
-				.pos = pos,
-				.line = lc,
-				.character = cc,
+				Token(Token::Type::CHAR, value),
+				pos,
+				lc,
+				cc,
 			};
 		} else {
 			value.push_back(c);
@@ -346,10 +344,10 @@ flynt::Lexer::FatToken flynt::Lexer::read_char() {
 
 	// Unterminated char literal
 	return FatToken {
-		.token = Token(Token::Type::UNKNOWN),
-		.pos = pos,
-		.line = lc,
-		.character = cc,
+		Token(Token::Type::UNKNOWN),
+		pos,
+		lc,
+		cc,
 	};
 }
 
@@ -376,10 +374,10 @@ flynt::Lexer::FatToken flynt::Lexer::read_number() {
 				_in.putback(*it);
 			}
 			return FatToken {
-				.token = Token(Token::Type::UNKNOWN),
-				.pos = pos,
-				.line = lc,
-				.character = cc,
+				Token(Token::Type::UNKNOWN),
+				pos,
+				lc,
+				cc,
 			};
 		}
 	}
@@ -403,10 +401,10 @@ flynt::Lexer::FatToken flynt::Lexer::read_number() {
 			_in.putback('.');
 			value.pop_back();
 			return FatToken {
-				.token = Token(Token::Type::INT, value),
-				.pos = pos,
-				.line = lc,
-				.character = cc,
+				Token(Token::Type::INT, value),
+				pos,
+				lc,
+				cc,
 			};
 		}
 
@@ -438,10 +436,10 @@ flynt::Lexer::FatToken flynt::Lexer::read_number() {
 		if (!std::isdigit(c)) {
 			// Invalid number format
 			return FatToken {
-				.token = Token(Token::Type::UNKNOWN),
-				.pos = pos,
-				.line = lc,
-				.character = cc,
+				Token(Token::Type::UNKNOWN),
+				pos,
+				lc,
+				cc,
 			};
 		}
 
@@ -454,17 +452,17 @@ flynt::Lexer::FatToken flynt::Lexer::read_number() {
 
 	if (has_dot || has_exponent) {
 		return FatToken {
-			.token = Token(Token::Type::FLOAT, value),
-			.pos = pos,
-			.line = lc,
-			.character = cc,
+			Token(Token::Type::FLOAT, value),
+			pos,
+			lc,
+			cc,
 		};
 	}
 
 	return FatToken {
-		.token = Token(Token::Type::INT, value),
-		.pos = pos,
-		.line = lc,
-		.character = cc,
+		Token(Token::Type::INT, value),
+		pos,
+		lc,
+		cc,
 	};
 }

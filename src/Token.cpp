@@ -1,6 +1,6 @@
 #include "Token.hpp"
 
-flynt::Token::Token(Token::Type type) : _type(type) {}
+flynt::Token::Token(Token::Type type) : _type(type), _value() {}
 flynt::Token::Token(Token::Type type, std::string value) : _type(type), _value(value) {}
 
 const char *flynt::Token::value() const {
@@ -42,8 +42,6 @@ bool flynt::Token::keyword() const {
 	switch (_type) {
 		case Token::Type::LET:
 		case Token::Type::FN:
-		case Token::Type::TEMPL:
-		case Token::Type::IDEA:
 		case Token::Type::TYPE:
 		case Token::Type::TRAIT:
 		case Token::Type::PRIV:

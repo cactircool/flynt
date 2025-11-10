@@ -13,12 +13,16 @@ namespace flynt {
 			Token token;
 			std::streampos pos;
 			size_t line, character;
+
+			FatToken() : token(Token::Type::UNKNOWN), pos(-1), line(0), character(0) {}
+			FatToken(const Token &token, std::streampos pos, size_t line, size_t character)
+				: token(token), pos(pos), line(line), character(character) {}
 		};
 		std::deque<FatToken> _buffer;
 		std::istream &_in;
 		FatToken _last;
 
-		size_t _line_ctr, _char_ctr;
+		size_t _line_ctr = 0, _char_ctr = 0;
 
 		unsigned _options: 3; // [left][right][binary] 000
 		constexpr static unsigned LEFT = 0b100;
