@@ -1,6 +1,5 @@
 #include "TrackingStreamBuf.hpp"
 #include <iosfwd>
-#include <numbers>
 
 using flynt::TrackingStreamBuf;
 
@@ -31,7 +30,7 @@ TrackingStreamBuf::int_type TrackingStreamBuf::pbackfail(int_type c) {
 		result = _source->sputbackc(static_cast<char>(c));
 
 	if (result != EOF)
-		update_position_backward(static_cast<char>(result));
+		update_position_backward();
 	return result;
 }
 
@@ -89,10 +88,11 @@ void TrackingStreamBuf::recalculate_column() {
 		if (c == '\n' || c == EOF)
 			break;
 	}
-	_source->pubseekpos(pos);
+	_source->pubseekpos(cur);
 }
 
 void TrackingStreamBuf::recalculate_position_at(std::streampos end) {
+	// TODO: implement a stack to prevent guaranteed O(n) time complexity
 	std::streampos cur = _source->pubseekoff(0, std::ios_base::cur);
 	_source->pubseekpos(0);
 	_line = 0;
@@ -119,7 +119,7 @@ void TrackingStreamBuf::recalculate_position_non_destructive() {
 	_line = 0;
 	_col = 0;
 
-	for (std::streamoff i = 0; i < end; ++i) {
+	for (std::streamoff i = 0; i < cur; ++i) {
 		int_type c = _source->sbumpc();
 		if (c == EOF) break;
 		if (c == '\n') {
