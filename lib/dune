@@ -1,0 +1,6 @@
+(library
+ (name flynt)
+ (libraries eio)
+ (preprocess
+ 	(pps ppx_deriving.show ppx_deriving.eq)
+ ))

@@ -1,0 +1,4 @@
+(executable
+ (public_name flynt)
+ (name main)
+ (libraries eio_main flynt))
