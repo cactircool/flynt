@@ -1,4 +1,5 @@
 (executable
  (public_name flynt)
  (name main)
+ (modes byte)
  (libraries eio_main flynt))

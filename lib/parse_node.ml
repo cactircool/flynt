@@ -1,6 +1,6 @@
 (* (bounds, from_root, id chain) *)
-type bounds = Lexer.fat_token * Lexer.fat_token
-type id = bool * string list
+type bounds = Lexer.fat_token * Lexer.fat_token [@@deriving show]
+type id = bool * string list [@@deriving show]
 
 type node =
 	| Program of (string * block) list
@@ -95,33 +95,34 @@ type node =
 	| False of Lexer.fat_token
 
 	| Parenthesis of fat_node
+	[@@deriving show]
 
-and block = fat_node (* specifically the Block variant *)
+and block = fat_node (* specifically the Block variant *) [@@deriving show]
 
 and enum_variant = {
 	name : string;
 	type_ : fat_node;
-}
+} [@@deriving show]
 
 and variable = {
 	name : string;
 	type_ : fat_node option;
 	value : fat_node option;
-}
+} [@@deriving show]
 
 and 'a function_t = {
 	name : 'a;
 	params : block;
 	result : fat_node option;
 	code : block;
-}
+} [@@deriving show]
 
 and layer = {
 	name : string;
 	members : block;
-}
+} [@@deriving show]
 
-and fat_node = bounds * node
+and fat_node = bounds * node [@@deriving show]
 
 let last (f : fat_node) = let ((_, last), _) = f in last
 

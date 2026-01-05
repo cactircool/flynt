@@ -743,3 +743,97 @@ let has_left (tok : t) : bool =
 
 let has_binary (tok : t) : bool =
 	binary tok || ((binaryify tok) <> tok)
+
+let bp (tok : t) : (int option * int option) =
+	match tok with
+	(* Precedence=0 - Special scope operator *)
+	| Scope -> (Some 0, Some 1)  (* left-to-right *)
+
+	(* Precedence=1 - Postfix unary operators *)
+	| RightIncrement
+	| RightDecrement
+	| RightPlus
+	| RightMinus
+	| RightNot
+	| RightQuestion
+	| RightBitwiseNot
+	| RightDereference
+	| RightReference
+	| RightDollar -> (Some 1, None)
+	| Dot -> (Some 1, Some 2)  (* member access, left-to-right *)
+
+	(* Precedence=2 - Prefix unary operators *)
+	| LeftIncrement
+	| LeftDecrement
+	| LeftPlus
+	| LeftMinus
+	| LeftNot
+	| LeftQuestion
+	| LeftBitwiseNot
+	| LeftDereference
+	| LeftReference
+	| LeftDollar
+	| Alloc
+	| Clean -> (None, Some 2)
+
+	(* Precedence=3 - Multiplicative, left-to-right *)
+	| Multiply
+	| Divide
+	| Modulus -> (Some 3, Some 4)
+
+	(* Precedence=4 - Additive, left-to-right *)
+	| Add
+	| Subtract -> (Some 5, Some 6)
+
+	(* Precedence=5 - Bitwise shifts, left-to-right *)
+	| LeftShift
+	| RightShift -> (Some 7, Some 8)
+
+	(* Precedence=6 - Relational/type operators, left-to-right *)
+	| LessThan
+	| GreaterThan
+	| LessThanEqualTo
+	| GreaterThanEqualTo
+	| In
+	| Is
+	| As -> (Some 9, Some 10)
+	| RightSpread -> (Some 9, None)  (* postfix spread *)
+
+	(* Precedence=7 - Range operators, left-to-right *)
+	| ExclusiveRange
+	| InclusiveRange -> (Some 11, Some 12)
+
+	(* Precedence=8 - Equality, left-to-right *)
+	| ComparisonEquals
+	| ComparisonNotEquals -> (Some 13, Some 14)
+
+	(* Precedence=9 - Bitwise AND, left-to-right *)
+	| BitwiseAnd -> (Some 15, Some 16)
+
+	(* Precedence=10 - Bitwise XOR, left-to-right *)
+	| BitwiseXor -> (Some 17, Some 18)
+
+	(* Precedence=11 - Bitwise OR, left-to-right *)
+	| BitwiseOr -> (Some 19, Some 20)
+
+	(* Precedence=12 - Logical AND, left-to-right *)
+	| And -> (Some 21, Some 22)
+
+	(* Precedence=13 - Logical OR, left-to-right *)
+	| Or -> (Some 23, Some 24)
+
+	(* Precedence=14 - Assignment operators, right-to-left *)
+	| AssignmentEquals
+	| AddEquals
+	| SubtractEquals
+	| MultiplyEquals
+	| DivideEquals
+	| ModulusEquals
+	| LeftShiftEquals
+	| RightShiftEquals
+	| BitwiseAndEquals
+	| BitwiseXorEquals
+	| BitwiseOrEquals -> (Some 26, Some 25)  (* right-to-left: right_bp < left_bp *)
+	| LeftSpread -> (None, Some 25)  (* prefix spread *)
+
+	| _ -> (None, None)

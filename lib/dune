@@ -1,6 +1,8 @@
 (library
  (name flynt)
  (libraries eio)
+ (modules :standard)
+ (modes byte)
  (preprocess
  	(pps ppx_deriving.show ppx_deriving.eq)
  ))

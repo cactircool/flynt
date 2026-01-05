@@ -149,13 +149,13 @@ let test_pushing_and_popping () =
 
 (* TODO: implement *)
 let test_resolution () =
-	let toks = collect (lexer_of_string "++x + +x+") in
+	let toks = collect (lexer_of_string "++a + +b+") in
 	let expected = [
 		Token.LeftIncrement;
-		Token.Id "x";
+		Token.Id "a";
 		Token.Add;
 		Token.LeftPlus;
-		Token.Id "x";
+		Token.Id "b";
 		Token.RightPlus;
 	] in
 	check (list string)
@@ -179,6 +179,18 @@ let test_resolution () =
 	check (list string)
 		"ambiguous sequence 2"
 		(List.map Token.show expected)
+		(List.map (strip_fat Token.show) toks);
+
+	let toks = collect (lexer_of_string "= a + b") in
+	let expected = [
+		Token.AssignmentEquals;
+		Token.Id "a";
+		Token.Add;
+		Token.Id "b";
+	] in
+	check (list string)
+		"sequence 3"
+		(List.map Token.show expected)
 		(List.map (strip_fat Token.show) toks)
 
 let test_c_hello_world () =
@@ -191,7 +203,7 @@ let test_c_hello_world () =
 		Token.Id "argc";
 		Token.Comma;
 		Token.Id "char";
-		Token.LeftDereference; (* Not regulated but whatever *)
+		Token.Multiply; (* Not regulated but whatever *)
 		Token.Id "argv";
 		Token.OpenBracket;
 		Token.ClosedBracket;

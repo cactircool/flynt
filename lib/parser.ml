@@ -1,4 +1,4 @@
-exception Parse_nodeError of Parse_node.bounds * string
+exception SyntaxError of Parse_node.bounds * string
 exception IOError of string
 
 type pres = Parse_node.fat_node * (string list)
@@ -32,7 +32,7 @@ type scope =
 
 (* TODO: pretty print *)
 let syntax_error (first : Lexer.fat_token) (last : Lexer.fat_token) (msg : string) : 'a =
-	raise (Parse_nodeError ((first, last), msg))
+	raise (SyntaxError ((first, last), msg))
 
 let io_error (msg : string) : 'a =
 	raise (IOError msg)
@@ -481,7 +481,7 @@ and parse_scope (scope : scope) (imports : string list) (s : Lexer.t) : pres =
 		let rec loop (s : Lexer.t) (start : Lexer.fat_token) (comma_found : bool) (imports : string list) (acc : Parse_node.fat_node list) : Lexer.fat_token * (Parse_node.fat_node list) * (string list) =
 			let start = unwrap_peek_token s (Some start) in
 			match start.token with
-			| Token.ClosedParen -> (discard_pop s; (start, List.rev acc, imports))
+			| Token.ClosedBrace -> (discard_pop s; (start, List.rev acc, imports))
 			| Token.Comma -> (
 				if comma_found then (
 					syntax_error
@@ -560,7 +560,7 @@ and parse_variable (imports : string list) (s : Lexer.t) : pres =
 	| _ ->
 		syntax_error
 			start last
-			(Printf.sprintf "'let %s' must be followed by an id or '='." name)
+			(Printf.sprintf "'let %s' must be followed by a type annotation or '='." name)
 
 and parse_function (imports : string list) (s : Lexer.t) : pres =
 	(*
@@ -568,7 +568,7 @@ and parse_function (imports : string list) (s : Lexer.t) : pres =
 		fn name(param type) {}
 		fn name() type = value
 		fn name() = value
-		fn name(constant) = value (acts as case like haskell ykwim)
+		fn name(constant) = value (acts as case like haskell ykwim) TODO
 	*)
 	let (name, start) =
 		expect_token s None (function | Token.Id name -> Some name | _ -> None) "'fn' must be followed by a single unchained id." in
@@ -854,8 +854,227 @@ and parse_until (imports : string list) (s : Lexer.t) : pres =
 	), imports
 
 and parse_expr (imports : string list) (s : Lexer.t) : pres =
-	(* TODO: binary, unary, call, index, ref, initializer *)
+	parse_expr_bp imports s max_int
 
+and parse_expr_bp (imports : string list) (s : Lexer.t) (max_bp : int) : pres =
+	let binary_bp (tok : Token.t) : int * int =
+		match Token.bp tok with
+		| (Some a, Some b) -> (a, b)
+		| _ -> failwith "expected binary operator token."
+	in
+
+	let left_bp (tok : Token.t) : int =
+		match Token.bp tok with
+		| (None, Some a) -> a
+		| _ -> failwith "expected left unary operator token."
+	in
+
+	let right_bp (tok : Token.t) : int =
+		match Token.bp tok with
+		| (Some a, None) -> a
+		| _ -> failwith "expected right unary operator token."
+	in
+
+	let (lhs, imports) =
+		let start = unwrap_peek_token s None in
+		match start.token with
+		| t when Token.left t -> (
+			discard_pop s;
+			let r_bp = left_bp t in
+			let (arg, imports) = parse_expr_bp imports s r_bp in
+			(
+				(
+					(start, Parse_node.last arg),
+					Parse_node.Unary { op = t; arg = Some arg }
+				),
+				imports
+			)
+		)
+		| Token.OpenParen -> (
+			discard_pop s;
+			let (((_, _), expr), imports) = parse_expr imports s in
+			let last =
+				simple_expect_token s (Some start) Token.ClosedParen
+					"expected ')'"
+			in (((start, last), expr), imports)
+		)
+		| _ -> (
+			let (atom, imports) = parse_atom imports s in
+			match atom with
+			| Some expr -> (
+				let (expr, imports) = parse_postfix imports s expr in
+				(expr, imports)
+			)
+			| None -> (
+				let start = unwrap_peek_token s None in
+				syntax_error start start "expected expression."
+			)
+		)
+	in
+
+	(* Parse infix/postfix operators *)
+	let rec loop lhs imports =
+		let peek = unwrap_peek_token s None in
+		match peek.token with
+		| t when Token.binary t ->
+			let (l_bp, r_bp) = binary_bp t in
+			if l_bp > max_bp then (lhs, imports)
+			else (
+				discard_pop s;
+				let (rhs, imports) = parse_expr_bp imports s r_bp in
+				let new_lhs = (
+					(Parse_node.start lhs, Parse_node.last rhs),
+					Parse_node.Binary { left = lhs; op = t; right = Some rhs }
+				) in
+				loop new_lhs imports
+			)
+		| t when Token.right t ->  (* postfix unary *)
+			let l_bp = right_bp t in
+			if l_bp < max_bp then (lhs, imports)
+			else (
+				discard_pop s;
+				let new_lhs = (
+					(Parse_node.start lhs, peek),
+					Parse_node.Unary { op = t; arg = Some lhs }
+				) in
+				loop new_lhs imports
+			)
+		| _ -> (lhs, imports)
+	in
+	loop lhs imports
+
+and parse_atom (imports : string list) (s : Lexer.t) : (Parse_node.fat_node option) * (string list) =
+	let start = unwrap_token s None in
+	match start.token with
+	| Token.Integer _ -> (Some ((start, start), Parse_node.Integer start), imports)
+	| Token.Float _ -> (Some ((start, start), Parse_node.Float start), imports)
+	| Token.Character _ -> (Some ((start, start), Parse_node.Character start), imports)
+	| Token.String _ -> (Some ((start, start), Parse_node.String start), imports)
+	| Token.True -> (Some ((start, start), Parse_node.True start), imports)
+	| Token.False -> (Some ((start, start), Parse_node.False start), imports)
+	| Token.If -> (
+		let (res, imports) = parse_if imports s in
+		(Some res, imports)
+	)
+	| Token.Until -> (
+		let (res, imports) = parse_until imports s in
+		(Some res, imports)
+	)
+	| Token.For -> (
+		let (res, imports) = parse_for imports s in
+		(Some res, imports)
+	)
+	| Token.Match -> (
+		let (res, imports) = parse_match imports s in
+		(Some res, imports)
+	)
+	| Token.OpenBracket -> (
+		let (size, imports) =
+			let last = unwrap_peek_token s (Some start) in
+			match last.token with
+			| Token.ClosedBracket -> (None, imports)
+			| _ -> (
+				let (expr, imports) = parse_expr imports s in
+				(Some expr, imports)
+			)
+		in
+		let _ =
+			simple_expect_token s None Token.ClosedBracket
+				"'[...]' array initializer starting must enclose either nothing or an integral expression, followed by ']'."
+		in
+		let (_, type_) = parse_id s in
+		let (args, imports) = parse_scope ArrayInitializer imports s in
+		(Some ((start, Parse_node.last args), Parse_node.ArrayInitializer { size = size; type_ = type_; args = args }), imports)
+	)
+	| Token.Id _ -> (
+		Lexer.push start s;
+		let (ref_last, ref) = parse_id s in
+		(Some ((start, ref_last), Parse_node.Reference ref), imports)
+	)
+	| _ -> (None, imports)
+
+and parse_postfix (imports : string list) (s : Lexer.t) (acc : Parse_node.fat_node) : pres =
+	let start = unwrap_peek_token s (Some (Parse_node.start acc)) in
+	match start.token with
+	| Token.OpenParen -> (
+		discard_pop s;
+		let (args, imports) = parse_scope FunctionArguments imports s in
+		let last =
+			simple_expect_token s (Some (Parse_node.start args)) Token.ClosedParen
+				"function call expression must be closed off with ')' to match the opening '('."
+		in
+		parse_postfix imports s (
+			(Parse_node.start acc, last), Parse_node.Call {
+				from = acc;
+				args = args;
+			}
+		)
+	)
+	| Token.OpenBracket -> (
+		discard_pop s;
+		let (args, imports) = parse_scope IndexArguments imports s in
+		let last =
+			simple_expect_token s (Some (Parse_node.start args)) Token.ClosedBracket
+				"index expression must be closed off with ']' to match the opening '['."
+		in
+		parse_postfix imports s (
+			(Parse_node.start acc, last), Parse_node.Index {
+				from = acc;
+				args = args;
+			}
+		)
+	)
+	| Token.OpenBrace -> (
+		let initializer_parse_scope (imports : string list) (s : Lexer.t) : Lexer.fat_token * ((string * Parse_node.fat_node) list) * (string list) =
+			let single (imports : string list) (s : Lexer.t) : (string * Parse_node.fat_node * (string list)) =
+				let (member, last) =
+					expect_token s (Some start) (function | Token.Id name -> Some name | _ -> None)
+						"initializer member assignment must start with the member name, followed by ':', and then a value to assign it."
+				in
+
+				let _ =
+					simple_expect_token s (Some last) Token.Colon
+						"colon needs to delimit the member name and the value in an initializer."
+				in
+
+				let (value, imports) = parse_expr imports s in
+				(member, value, imports)
+			in
+
+			let rec loop (s : Lexer.t) (start : Lexer.fat_token) (comma_found : bool) (imports : string list) (acc : (string * Parse_node.fat_node) list) : Lexer.fat_token * ((string * Parse_node.fat_node) list) * (string list) =
+				let start = unwrap_peek_token s (Some start) in
+				match start.token with
+				| Token.ClosedBrace -> (discard_pop s; (start, List.rev acc, imports))
+				| Token.Comma -> (
+					if comma_found then (
+						syntax_error
+							start start
+							"only one comma (+ one trailing) can delimit argument assignments in an initializer."
+					) else (
+						(discard_pop s; loop s start true imports acc)
+					)
+				)
+				| _ -> (
+					let (thing_tag, thing, imports) = single imports s in
+					loop s start false imports ((thing_tag, thing) :: acc)
+				)
+			in
+
+			let (last, nodes, imports) = loop s start false imports [] in
+			(last, nodes, imports)
+		in
+		let (last, args, imports) = initializer_parse_scope imports s in
+		parse_postfix imports s (
+			(Parse_node.start acc, last), Parse_node.Initializer {
+				type_ = acc;
+				args = args;
+			}
+		)
+	)
+	| _ -> (acc, imports)
+
+(*
+and parse_expr (imports : string list) (s : Lexer.t) : pres =
 	let prec (f : Lexer.fat_token) : int =
 		if f.token = Token.OpenParen then (
 			-1
@@ -1007,136 +1226,7 @@ and parse_expr (imports : string list) (s : Lexer.t) : pres =
 	| h::_ ->
 		syntax_error (Parse_node.start h) (Parse_node.last h) "invalid expression."
 
-and parse_atom (imports : string list) (s : Lexer.t) : (Parse_node.fat_node option) * (string list) =
-	let start = unwrap_token s None in
-	match start.token with
-	| Token.Integer _ -> (Some ((start, start), Parse_node.Integer start), imports)
-	| Token.Float _ -> (Some ((start, start), Parse_node.Integer start), imports)
-	| Token.Character _ -> (Some ((start, start), Parse_node.Character start), imports)
-	| Token.String _ -> (Some ((start, start), Parse_node.String start), imports)
-	| Token.True -> (Some ((start, start), Parse_node.True start), imports)
-	| Token.False -> (Some ((start, start), Parse_node.False start), imports)
-	| Token.If -> (
-		let (res, imports) = parse_if imports s in
-		(Some res, imports)
-	)
-	| Token.Until -> (
-		let (res, imports) = parse_until imports s in
-		(Some res, imports)
-	)
-	| Token.For -> (
-		let (res, imports) = parse_for imports s in
-		(Some res, imports)
-	)
-	| Token.Match -> (
-		let (res, imports) = parse_match imports s in
-		(Some res, imports)
-	)
-	| Token.OpenBracket -> (
-		let (size, imports) =
-			let last = unwrap_peek_token s (Some start) in
-			match last.token with
-			| Token.ClosedBracket -> (None, imports)
-			| _ -> (
-				let (expr, imports) = parse_expr imports s in
-				(Some expr, imports)
-			)
-		in
-		let _ =
-			simple_expect_token s None Token.ClosedBracket
-				"'[...]' array initializer starting must enclose either nothing or an integral expression, followed by ']'."
-		in
-		let (_, type_) = parse_id s in
-		let (args, imports) = parse_scope ArrayInitializer imports s in
-		(Some ((start, Parse_node.last args), Parse_node.ArrayInitializer { size = size; type_ = type_; args = args }), imports)
-	)
-	| Token.Id _ -> (
-		Lexer.push start s;
-		let (ref_last, ref) = parse_id s in
-		(Some ((start, ref_last), Parse_node.Reference ref), imports)
-	)
-	| _ -> (None, imports)
-
-and parse_postfix (imports : string list) (s : Lexer.t) (acc : Parse_node.fat_node) : pres =
-	let start = unwrap_peek_token s (Some (Parse_node.start acc)) in
-	match start.token with
-	| Token.OpenParen -> (
-		discard_pop s;
-		let (args, imports) = parse_scope FunctionArguments imports s in
-		let last =
-			simple_expect_token s (Some (Parse_node.start args)) Token.ClosedBracket
-				"function call expression must be closed off with ')' to match the opening '('."
-		in
-		parse_postfix imports s (
-			(Parse_node.start acc, last), Parse_node.Call {
-				from = acc;
-				args = args;
-			}
-		)
-	)
-	| Token.OpenBracket -> (
-		discard_pop s;
-		let (args, imports) = parse_scope IndexArguments imports s in
-		let last =
-			simple_expect_token s (Some (Parse_node.start args)) Token.ClosedBracket
-				"index expression must be closed off with ']' to match the opening '['."
-		in
-		parse_postfix imports s (
-			(Parse_node.start acc, last), Parse_node.Index {
-				from = acc;
-				args = args;
-			}
-		)
-	)
-	| Token.OpenBrace -> (
-		let initializer_parse_scope (imports : string list) (s : Lexer.t) : Lexer.fat_token * ((string * Parse_node.fat_node) list) * (string list) =
-			let single (imports : string list) (s : Lexer.t) : (string * Parse_node.fat_node * (string list)) =
-				let (member, last) =
-					expect_token s (Some start) (function | Token.Id name -> Some name | _ -> None)
-						"initializer member assignment must start with the member name, followed by ':', and then a value to assign it."
-				in
-
-				let _ =
-					simple_expect_token s (Some last) Token.Colon
-						"colon needs to delimit the member name and the value in an initializer."
-				in
-
-				let (value, imports) = parse_expr imports s in
-				(member, value, imports)
-			in
-
-			let rec loop (s : Lexer.t) (start : Lexer.fat_token) (comma_found : bool) (imports : string list) (acc : (string * Parse_node.fat_node) list) : Lexer.fat_token * ((string * Parse_node.fat_node) list) * (string list) =
-				let start = unwrap_peek_token s (Some start) in
-				match start.token with
-				| Token.ClosedParen -> (discard_pop s; (start, List.rev acc, imports))
-				| Token.Comma -> (
-					if comma_found then (
-						syntax_error
-							start start
-							"only one comma (+ one trailing) can delimit argument assignments in an initializer."
-					) else (
-						(discard_pop s; loop s start true imports acc)
-					)
-				)
-				| _ -> (
-					let (thing_tag, thing, imports) = single imports s in
-					loop s start false imports ((thing_tag, thing) :: acc)
-				)
-			in
-
-			let (last, nodes, imports) = loop s start false imports [] in
-			(last, nodes, imports)
-		in
-		let (last, args, imports) = initializer_parse_scope imports s in
-		parse_postfix imports s (
-			(Parse_node.start acc, last), Parse_node.Initializer {
-				type_ = acc;
-				args = args;
-			}
-		)
-	)
-	| _ -> (acc, imports)
-
+ *)
 and parse_type_annotation (imports : string list) (s : Lexer.t) : pres =
 	let start = unwrap_token s None in
 	match start.token with
@@ -1230,16 +1320,200 @@ and stringify_id (id : Parse_node.id) : string =
 		| h::t -> h ^ "::" ^ (loop t)
 	in (if root then "::" else "") ^ (loop chain)
 
-and stringify_node (node : Parse_node.fat_node) : string =
-	(* TODO: implement correctly *)
+let rec stringify_node (node : Parse_node.fat_node) : string =
 	let (_, node) = node in
 	match node with
-	| Parse_node.Variable var -> "let " ^ var.name ^ (
-		match var.type_ with
-		| None -> ""
-		| Some _ -> "something" (* TODO: fix *)
-	)
-	| _ -> failwith "expected variable node."
+	| Parse_node.Program files ->
+			"Program [\n" ^
+			(String.concat ";\n" (List.map (fun (path, block) ->
+				"	 " ^ path ^ " -> " ^ stringify_node block
+			) files)) ^
+			"\n]"
+
+	| Parse_node.Pub inner ->
+			"pub " ^ stringify_node inner
+
+	| Parse_node.Priv inner ->
+			"priv " ^ stringify_node inner
+
+	| Parse_node.Stat inner ->
+			"stat " ^ stringify_node inner
+
+	| Parse_node.Id id ->
+			stringify_id id
+
+	| Parse_node.Variable var ->
+			"let " ^ var.name ^
+			(match var.type_ with
+			 | None -> ""
+			 | Some t -> " : " ^ stringify_node t) ^
+			(match var.value with
+			 | None -> ""
+			 | Some v -> " = " ^ stringify_node v)
+
+	| Parse_node.Type layer ->
+			if layer.name = "" then
+				"type { " ^ stringify_node layer.members ^ " }"
+			else
+				"type " ^ layer.name ^ " { " ^ stringify_node layer.members ^ " }"
+
+	| Parse_node.Alias (name, target) ->
+			"type " ^ name ^ " = " ^ stringify_node target
+
+	| Parse_node.Tuple block ->
+			"(" ^ stringify_node block ^ ")"
+
+	| Parse_node.Function fn ->
+			"fn " ^ fn.name ^ stringify_node fn.params ^
+			(match fn.result with
+			 | None -> ""
+			 | Some r -> " " ^ stringify_node r) ^
+			" " ^ stringify_node fn.code
+
+	| Parse_node.OperatorOverload { name; params; result; code } ->
+			"oper (" ^
+			(if List.length params = 1 then
+				Token.value name ^ stringify_node (List.hd params)
+			else if List.length params = 2 then
+				stringify_node (List.nth params 0) ^ " " ^
+				Token.value name ^ " " ^
+				stringify_node (List.nth params 1)
+			else "") ^
+			")" ^
+			(match result with
+			 | None -> ""
+			 | Some r -> " " ^ stringify_node r) ^
+			" " ^ stringify_node code
+
+	| Parse_node.EnumVariant { name; type_ } ->
+			name ^ " " ^ stringify_node type_
+
+	| Parse_node.Enum layer ->
+			if layer.name = "" then
+				"enum { " ^ stringify_node layer.members ^ " }"
+			else
+				"enum " ^ layer.name ^ " { " ^ stringify_node layer.members ^ " }"
+
+	| Parse_node.AnonymousEnum block ->
+			"{ " ^ stringify_node block ^ " }"
+
+	| Parse_node.Space { name; members } ->
+			"space " ^ stringify_id name ^ " { " ^ stringify_node members ^ " }"
+
+	| Parse_node.Use id ->
+			"use " ^ stringify_id id
+
+	| Parse_node.Import { path } ->
+			"import \"" ^ path ^ "\""
+
+	| Parse_node.If { condition; true_block; false_block } ->
+			"if " ^ stringify_node condition ^
+			" " ^ stringify_node true_block ^
+			(match false_block with
+			 | None -> ""
+			 | Some fb -> " else " ^ stringify_node fb)
+
+	| Parse_node.Match { switcher; cases } ->
+			"match " ^ stringify_node switcher ^ " { " ^ stringify_node cases ^ " }"
+
+	| Parse_node.MatchCase { expr; logic } ->
+			stringify_node expr ^
+			(match logic with
+			 | None -> ","
+			 | Some l -> " -> " ^ stringify_node l)
+
+	| Parse_node.For { params; block } ->
+			"for " ^ stringify_node params ^ " " ^ stringify_node block
+
+	| Parse_node.Until { condition; block } ->
+			"until " ^ stringify_node condition ^ " " ^ stringify_node block
+
+	| Parse_node.Block nodes ->
+			"{ " ^
+			String.concat "; " (List.map stringify_node nodes) ^
+			" }"
+
+	| Parse_node.Break None ->
+			"brk"
+
+	| Parse_node.Break (Some expr) ->
+			"brk " ^ stringify_node expr
+
+	| Parse_node.Continue ->
+			"cont"
+
+	| Parse_node.Binary { left; op; right } ->
+			stringify_node left ^ " " ^ Token.value op ^
+			(match right with
+			 | None -> ""
+			 | Some r -> " " ^ stringify_node r)
+
+	| Parse_node.Unary { op; arg } ->
+			(match arg with
+			 | None -> Token.value op
+			 | Some a ->
+					 if Token.left op then
+						 Token.value op ^ stringify_node a
+					 else
+						 stringify_node a ^ Token.value op)
+
+	| Parse_node.Reference id ->
+			stringify_id id
+
+	| Parse_node.Call { from; args } ->
+			stringify_node from ^ stringify_node args
+
+	| Parse_node.Index { from; args } ->
+			stringify_node from ^ "[" ^
+			(let (_, block_node) = args in
+			 match block_node with
+			 | Parse_node.Block nodes ->
+					 String.concat ", " (List.map stringify_node nodes)
+			 | _ -> stringify_node args) ^
+			"]"
+
+	| Parse_node.Initializer { type_; args } ->
+			stringify_node type_ ^ " { " ^
+			String.concat ", " (List.map (fun (name, value) ->
+				name ^ ": " ^ stringify_node value
+			) args) ^
+			" }"
+
+	| Parse_node.ArrayInitializer { size; type_; args } ->
+			"[" ^
+			(match size with
+			 | None -> ""
+			 | Some s -> stringify_node s) ^
+			"]" ^ stringify_id type_ ^ " " ^ stringify_node args
+
+	| Parse_node.Integer tok ->
+			(match tok.token with
+			 | Token.Integer s -> s
+			 | _ -> "<invalid integer>")
+
+	| Parse_node.Float tok ->
+			(match tok.token with
+			 | Token.Float s -> s
+			 | _ -> "<invalid float>")
+
+	| Parse_node.Character tok ->
+			(match tok.token with
+			 | Token.Character s -> "'" ^ s ^ "'"
+			 | _ -> "<invalid char>")
+
+	| Parse_node.String tok ->
+			(match tok.token with
+			 | Token.String s -> "\"" ^ s ^ "\""
+			 | _ -> "<invalid string>")
+
+	| Parse_node.True _ ->
+			"true"
+
+	| Parse_node.False _ ->
+			"false"
+
+	| Parse_node.Parenthesis inner ->
+			"(" ^ stringify_node inner ^ ")"
 
 let parse_entry (input_files : string list) env : Parse_node.node =
 	let with_mutex m f =
