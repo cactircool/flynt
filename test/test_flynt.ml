@@ -5,5 +5,5 @@ let () =
 		"tokens", Test_token.tests;
 		"reader", Test_reader.tests;
 		"lexer", Test_lexer.tests;
-		"parser", Test_parser.tests;
+		"parser", Test_shell.tests;
 	]

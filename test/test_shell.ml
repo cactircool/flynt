@@ -1,8 +1,8 @@
 (* Comprehensive parser tests using Alcotest *)
 
 open Flynt
-open Parser
-open Parse_node
+open Shell_parser
+open Shell_ast
 
 (* Helper to create a test lexer from a string *)
 let lexer_from_string (s : string) : Lexer.t =
@@ -24,7 +24,7 @@ let test_simple_variable () =
 	let (result, _) = parse_string "let x = 5" in
 	match extract_node result with
 	| Block [((_, _), Variable { name = "x"; type_ = None; value = Some _ })] -> ()
-	| _ -> Alcotest.fail ("Expected simple variable declaration. Got: " ^ (Parser.stringify_node result))
+	| _ -> Alcotest.fail ("Expected simple variable declaration. Got: " ^ (stringify_node result))
 
 let test_variable_with_type () =
 	let (result, _) = parse_string "let x i32 = 5" in
@@ -264,23 +264,23 @@ let test_nested_expressions () =
 let test_chained_calls () =
 	let (result, _) = parse_string "foo().bar().baz()" in
 	match extract_node result with
-	| (Parse_node.Block
+	| (Shell_ast.Block
 		[
-			(_, Parse_node.Binary {
-				left = (_, Parse_node.Call {
-					from = (_, (Parse_node.Reference (false, ["foo"])));
-					args = (_, (Parse_node.Block []))
+			(_, Shell_ast.Binary {
+				left = (_, Shell_ast.Call {
+					from = (_, (Shell_ast.Reference (false, ["foo"])));
+					args = (_, (Shell_ast.Block []))
 				});
 				op = Token.Dot;
-				right = (Some (_, Parse_node.Binary {
-					left = (_, Parse_node.Call {
-						from = (_, (Parse_node.Reference (false, ["bar"])));
-						args = (_, (Parse_node.Block []))
+				right = (Some (_, Shell_ast.Binary {
+					left = (_, Shell_ast.Call {
+						from = (_, (Shell_ast.Reference (false, ["bar"])));
+						args = (_, (Shell_ast.Block []))
 					});
 					op = Token.Dot;
-					right = (Some (_, Parse_node.Call {
-						from = (_, (Parse_node.Reference (false, ["baz"])));
-						args = (_, (Parse_node.Block []))
+					right = (Some (_, Shell_ast.Call {
+						from = (_, (Shell_ast.Reference (false, ["baz"])));
+						args = (_, (Shell_ast.Block []))
 					}))
 				}))
 			})

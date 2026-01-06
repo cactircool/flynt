@@ -16,7 +16,7 @@ let () =
 		(* Preprocess *)
 
 		(* Parse *)
-		let _ = Parser.parse_entry !chill !input_files env in
+		let _ = Shell_parser.parse_entry !chill !input_files env in
 
 		(* Analyze *)
 
