@@ -29,6 +29,7 @@ type node =
 		name : id;
 		members : block;
 	}
+	| Pointer of fat_node (* pointer to the innards *)
 
 	| Use of id
 	| Import of {
@@ -87,6 +88,7 @@ type node =
 		type_ : id;
 		args : block;
 	}
+	| TupleExpr of fat_node list (* could be block but thats unnecessary for simplicity *)
 	| Integer of Lexer.fat_token
 	| Float of Lexer.fat_token
 	| Character of Lexer.fat_token

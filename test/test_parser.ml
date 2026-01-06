@@ -13,7 +13,7 @@ let lexer_from_string (s : string) : Lexer.t =
 (* Helper to parse a string and return the node *)
 let parse_string (s : string) : fat_node * string list =
 	let lexer = lexer_from_string s in
-	parse [] lexer
+	parse true [] lexer
 
 (* Helper to extract node from fat_node *)
 let extract_node (fn : fat_node) : node =
@@ -52,7 +52,7 @@ let test_function_with_params () =
 	| _ -> Alcotest.fail "Expected function with parameters and return type"
 
 let test_type_declaration () =
-	let (result, _) = parse_string "type Point { let x i32; let y i32 }" in
+	let (result, _) = parse_string "type Point { let x i32 let y i32 }" in
 	match extract_node result with
 	| Block [((_, _), Type { name = "Point"; members = _ })] -> ()
 	| _ -> Alcotest.fail "Expected type declaration"
@@ -70,7 +70,7 @@ let test_enum_declaration () =
 	| _ -> Alcotest.fail "Expected enum declaration"
 
 let test_space_declaration () =
-	let (result, _) = parse_string "space math { fn add(let a : i32, let b : i32) i32 = a + b }" in
+	let (result, _) = parse_string "space math { fn add(a i32, b i32) i32 = a + b }" in
 	match extract_node result with
 	| Block [((_, _), Space { name = (false, ["math"]); members = _ })] -> ()
 	| _ -> Alcotest.fail "Expected space declaration"
@@ -97,16 +97,16 @@ let test_if_statement () =
 	let (result, _) = parse_string "if true { 5 }" in
 	match extract_node result with
 	| Block [((_, _), If { condition = _; true_block = _; false_block = None })] -> ()
-	| _ -> Alcotest.fail "Expected if statement"
+	| _ -> (Printf.printf "%s\n" (stringify_node result); Alcotest.fail "Expected if statement")
 
 let test_if_else_statement () =
-	let (result, _) = parse_string "if x { 5 } else { 10 }" in
+	let (result, _) = parse_string "if (x) { 5 } else { 10 }" in
 	match extract_node result with
 	| Block [((_, _), If { condition = _; true_block = _; false_block = Some _ })] -> ()
 	| _ -> Alcotest.fail "Expected if-else statement"
 
 let test_match_statement () =
-	let (result, _) = parse_string "match x { 1 -> 5 2 -> 10 }" in
+	let (result, _) = parse_string "match (x) { 1 -> 5 2 -> 10 }" in
 	match extract_node result with
 	| Block [((_, _), Match { switcher = _; cases = _ })] -> ()
 	| _ -> Alcotest.fail "Expected match statement"
@@ -118,7 +118,7 @@ let test_for_loop () =
 	| _ -> Alcotest.fail "Expected for loop"
 
 let test_until_loop () =
-	let (result, _) = parse_string "until x { }" in
+	let (result, _) = parse_string "until (x) { }" in
 	match extract_node result with
 	| Block [((_, _), Until { condition = _; block = _ })] -> ()
 	| _ -> Alcotest.fail "Expected until loop"
@@ -139,7 +139,7 @@ let test_unary_right_expression () =
 	let (result, _) = parse_string "x++" in
 	match extract_node result with
 	| Block [((_, _), Unary { op = Token.RightIncrement; arg = Some _ })] -> ()
-	| _ -> Alcotest.fail "Expected right unary expression"
+	| _ -> (Printf.printf "got: %s\n" (stringify_node result); Alcotest.fail "Expected right unary expression")
 
 let test_function_call () =
 	let (result, _) = parse_string "foo(1, 2, 3)" in
@@ -202,43 +202,43 @@ let test_priv_modifier () =
 	| _ -> Alcotest.fail "Expected priv modifier"
 
 let test_stat_modifier () =
-	let (result, _) = parse_string "stat fn helper() { }" in
+	let (result, _) = parse_string "type hi { stat fn helper() { } }" in
 	match extract_node result with
-	| Block [((_, _), Stat ((_, _), Function _))] -> ()
+	| Block [((_, _), Type { name = "hi"; members = (_, Block [((_, _), Stat ((_, _), Function _))]) })] -> ()
 	| _ -> Alcotest.fail "Expected stat modifier"
 
 let test_operator_overload_binary () =
-	let (result, _) = parse_string "oper (let a : i32 + let b : i32) i32 { a + b }" in
+	let (result, _) = parse_string "oper (a i32 + b i32) i32 { a + b }" in
 	match extract_node result with
 	| Block [((_, _), OperatorOverload { name = Token.Add; params = [_; _]; result = Some _; code = _ })] -> ()
 	| _ -> Alcotest.fail "Expected binary operator overload"
 
 let test_operator_overload_left () =
-	let (result, _) = parse_string "oper (!let a : bool) bool { false }" in
+	let (result, _) = parse_string "oper (!a bool) bool { false }" in
 	match extract_node result with
 	| Block [((_, _), OperatorOverload { name = Token.LeftNot; params = [_]; result = Some _; code = _ })] -> ()
 	| _ -> Alcotest.fail "Expected left unary operator overload"
 
 let test_operator_overload_right () =
-	let (result, _) = parse_string "oper (let a : i32++) i32 { a + 1 }" in
+	let (result, _) = parse_string "oper (a i32++) i32 { a + 1 }" in
 	match extract_node result with
 	| Block [((_, _), OperatorOverload { name = Token.RightIncrement; params = [_]; result = Some _; code = _ })] -> ()
 	| _ -> Alcotest.fail "Expected right unary operator overload"
 
 let test_tuple_type () =
-	let (result, _) = parse_string "let x : (i32, i32) = (1, 2)" in
+	let (result, _) = parse_string "let x (i32, i32) = (1, 2)" in
 	match extract_node result with
 	| Block [((_, _), Variable { type_ = Some ((_, _), Tuple _); _ })] -> ()
 	| _ -> Alcotest.fail "Expected tuple type"
 
 let test_anonymous_enum () =
-	let (result, _) = parse_string "let x : {i32, f32} = 5" in
+	let (result, _) = parse_string "let x {i32, f32} = 5" in
 	match extract_node result with
 	| Block [((_, _), Variable { type_ = Some ((_, _), AnonymousEnum _); _ })] -> ()
 	| _ -> Alcotest.fail "Expected anonymous enum type"
 
 let test_break_statement () =
-	let (result, _) = parse_string "for let i = 0; i < 10; i = i + 1 { brk }" in
+	let (result, _) = parse_string "for let i = 0; i < 10; i = i + 1 { brk; }" in
 	match extract_node result with
 	| Block [((_, _), For { block = ((_, _), Block [((_, _), Break None)]); _ })] -> ()
 	| _ -> Alcotest.fail "Expected break statement"
@@ -264,7 +264,27 @@ let test_nested_expressions () =
 let test_chained_calls () =
 	let (result, _) = parse_string "foo().bar().baz()" in
 	match extract_node result with
-	| Block [((_, _), Call { from = ((_, _), Call { from = ((_, _), Call _); _ }); _ })] -> ()
+	| (Parse_node.Block
+		[
+			(_, Parse_node.Binary {
+				left = (_, Parse_node.Call {
+					from = (_, (Parse_node.Reference (false, ["foo"])));
+					args = (_, (Parse_node.Block []))
+				});
+				op = Token.Dot;
+				right = (Some (_, Parse_node.Binary {
+					left = (_, Parse_node.Call {
+						from = (_, (Parse_node.Reference (false, ["bar"])));
+						args = (_, (Parse_node.Block []))
+					});
+					op = Token.Dot;
+					right = (Some (_, Parse_node.Call {
+						from = (_, (Parse_node.Reference (false, ["baz"])));
+						args = (_, (Parse_node.Block []))
+					}))
+				}))
+			})
+     ]) -> ()
 	| _ -> Alcotest.fail "Expected chained function calls"
 
 let test_complex_initializer () =
@@ -293,6 +313,12 @@ let test_scope_resolution () =
 
 let test_rooted_scope_resolution () =
 	let (result, _) = parse_string "::std::io" in
+	match extract_node result with
+	| Block [((_, _), Reference (true, ["std"; "io"]))] -> ()
+	| _ -> Alcotest.fail "Expected rooted scope resolution"
+
+let test_hello_world () =
+	let (result, _) = parse_string "import \"io\"\nfn main(argc i32, argv *char) {\n\tio.Println(\"Hello world!\")\n}\n" in
 	match extract_node result with
 	| Block [((_, _), Reference (true, ["std"; "io"]))] -> ()
 	| _ -> Alcotest.fail "Expected rooted scope resolution"

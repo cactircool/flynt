@@ -1,9 +1,11 @@
 open Flynt
 
 let output = ref ""
+let chill = ref false
 let input_files = ref []
 let help = [
 	("-o", Arg.Set_string output, " Output file");
+	("--chill", Arg.Set chill, " Allow root level expressions (run top down in order of least dependency before main)")
 ]
 
 let () =
@@ -14,7 +16,7 @@ let () =
 		(* Preprocess *)
 
 		(* Parse *)
-		let _ = Parser.parse_entry !input_files env in
+		let _ = Parser.parse_entry !chill !input_files env in
 
 		(* Analyze *)
 
