@@ -216,7 +216,7 @@ module SymbolTrie = struct
 end
 
 let tokenize (reader : Reader.t) : (t, string) result =
-	let tokenize_number_or_dot (reader : Reader.t) : (t, string) result =
+	let tokenize_number_or_dot_or_spread_or_range (reader : Reader.t) : (t, string) result =
 		let buf = Buffer.create 16 in
 		let rec loop (dot_found : bool) : (t, string) result =
 			match Reader.peek reader with
@@ -242,6 +242,15 @@ let tokenize (reader : Reader.t) : (t, string) result =
 					Ok (Integer (Buffer.contents buf))
 			) in
 		match loop false with
+		| Ok (Float "..") -> (
+			match Reader.peek reader with
+			| Some '=' -> (
+				Reader.skip reader;
+				Ok InclusiveRange
+			)
+			| _ -> Ok ExclusiveRange
+		)
+		| Ok (Float "...") -> Ok RightSpread
 		| Ok (Float ".") -> Ok Dot
 		| _ as res -> res
 	in
@@ -294,7 +303,7 @@ let tokenize (reader : Reader.t) : (t, string) result =
 	match Reader.peek reader with
 	| Some c -> (
 		if Char.Ascii.is_digit c || c = '.' then
-			tokenize_number_or_dot reader
+			tokenize_number_or_dot_or_spread_or_range reader
 		else if Char.Ascii.is_letter c || c = '_' then
 			tokenize_id_or_keyword reader
 		else if (c = '\'') || (c = '"') then
@@ -744,7 +753,7 @@ let has_left (tok : t) : bool =
 let has_binary (tok : t) : bool =
 	binary tok || ((binaryify tok) <> tok)
 
-let bp (tok : t) : (int option * int option) =
+(* let bp (tok : t) : (int option * int option) =
 	match tok with
 	(* Precedence=0 - Special scope operator *)
 	| Scope -> (Some 0, Some 1)  (* left-to-right *)
@@ -834,6 +843,100 @@ let bp (tok : t) : (int option * int option) =
 	| BitwiseAndEquals
 	| BitwiseXorEquals
 	| BitwiseOrEquals -> (Some 26, Some 25)  (* right-to-left: right_bp < left_bp *)
+	| LeftSpread -> (None, Some 25)  (* prefix spread *)
+
+	| _ -> (None, None) *)
+
+let bp (tok : t) : (int option * int option) =
+	match tok with
+	(* Precedence=0 - Special scope operator *)
+	| Scope -> (Some 0, Some 0)  (* left-to-right *)
+
+	(* Precedence=1 - Postfix unary operators *)
+	| RightIncrement
+	| RightDecrement
+	| RightPlus
+	| RightMinus
+	| RightNot
+	| RightQuestion
+	| RightBitwiseNot
+	| RightDereference
+	| RightReference
+	| RightDollar -> (Some 1, None)
+	| Dot -> (Some 1, Some 1)  (* member access, left-to-right *)
+
+	(* Precedence=2 - Prefix unary operators *)
+	| LeftIncrement
+	| LeftDecrement
+	| LeftPlus
+	| LeftMinus
+	| LeftNot
+	| LeftQuestion
+	| LeftBitwiseNot
+	| LeftDereference
+	| LeftReference
+	| LeftDollar
+	| Alloc
+	| Clean -> (None, Some 2)
+
+	(* Precedence=3 - Multiplicative, left-to-right *)
+	| Multiply
+	| Divide
+	| Modulus -> (Some 3, Some 3)
+
+	(* Precedence=4 - Additive, left-to-right *)
+	| Add
+	| Subtract -> (Some 5, Some 5)
+
+	(* Precedence=5 - Bitwise shifts, left-to-right *)
+	| LeftShift
+	| RightShift -> (Some 7, Some 7)
+
+	(* Precedence=6 - Relational/type operators, left-to-right *)
+	| LessThan
+	| GreaterThan
+	| LessThanEqualTo
+	| GreaterThanEqualTo
+	| In
+	| Is
+	| As -> (Some 9, Some 9)
+	| RightSpread -> (Some 9, None)  (* postfix spread *)
+
+	(* Precedence=7 - Range operators, left-to-right *)
+	| ExclusiveRange
+	| InclusiveRange -> (Some 11, Some 11)
+
+	(* Precedence=8 - Equality, left-to-right *)
+	| ComparisonEquals
+	| ComparisonNotEquals -> (Some 13, Some 13)
+
+	(* Precedence=9 - Bitwise AND, left-to-right *)
+	| BitwiseAnd -> (Some 15, Some 15)
+
+	(* Precedence=10 - Bitwise XOR, left-to-right *)
+	| BitwiseXor -> (Some 17, Some 17)
+
+	(* Precedence=11 - Bitwise OR, left-to-right *)
+	| BitwiseOr -> (Some 19, Some 19)
+
+	(* Precedence=12 - Logical AND, left-to-right *)
+	| And -> (Some 21, Some 21)
+
+	(* Precedence=13 - Logical OR, left-to-right *)
+	| Or -> (Some 23, Some 23)
+
+	(* Precedence=14 - Assignment operators, right-to-left *)
+	| AssignmentEquals
+	| AddEquals
+	| SubtractEquals
+	| MultiplyEquals
+	| DivideEquals
+	| ModulusEquals
+	| LeftShiftEquals
+	| RightShiftEquals
+	| BitwiseAndEquals
+	| BitwiseXorEquals
+	| BitwiseOrEquals -> (Some 25, Some 26)  (* right-to-left: right_bp < left_bp *)
 	| LeftSpread -> (None, Some 25)  (* prefix spread *)
 
 	| _ -> (None, None)

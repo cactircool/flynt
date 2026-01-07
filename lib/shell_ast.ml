@@ -9,8 +9,6 @@ type node =
 	| Priv of fat_node
 	| Stat of fat_node
 
-	| Id of id
-
 	| Variable of variable
 	| Type of layer (* name = "" for anonymous *)
 	| Alias of string * fat_node
@@ -23,13 +21,27 @@ type node =
 		code : block;
 	}
 	| EnumVariant of enum_variant
-	| Enum of layer (* name = "" for anonymous *)
-	| AnonymousEnum of block
+	| Enum of layer (* name = "" for anonymous (but variants are still named) *)
+	| AnonymousEnum of block (* both unnamed and variants are unnamed and differentiated purely by type *)
 	| Space of {
 		name : id;
 		members : block;
 	}
 	| Pointer of fat_node (* pointer to the innards *)
+	| FunctionType of {
+		params : block;
+		result : fat_node option;
+	}
+	| Lambda of {
+		params : block;
+		result : fat_node option;
+		code : block;
+	}
+	| ArrayType of {
+		size: fat_node;
+		type_ : fat_node;
+	}
+	| Variadic of fat_node
 
 	| Use of id
 	| Import of {
@@ -38,8 +50,8 @@ type node =
 
 	| If of {
 		condition : fat_node; (* enforce bool *)
-		true_block : fat_node;
-		false_block : fat_node option;
+		true_block : block;
+		false_block : block option;
 	}
 	| Match of {
 		switcher : fat_node;
@@ -50,7 +62,10 @@ type node =
 		logic : fat_node option;
 	}
 	| For of {
-		params: block;
+		init : block;
+		condition : fat_node;
+		iter : block;
+
 		block : block;
 	}
 	| Until of {
@@ -85,7 +100,7 @@ type node =
 	}
 	| ArrayInitializer of {
 		size : fat_node option;
-		type_ : id;
+		type_ : fat_node;
 		args : block;
 	}
 	| TupleExpr of fat_node list (* could be block but thats unnecessary for simplicity *)
@@ -95,11 +110,9 @@ type node =
 	| String of Lexer.fat_token
 	| True of Lexer.fat_token
 	| False of Lexer.fat_token
-
-	| Parenthesis of fat_node
 	[@@deriving show]
 
-and block = fat_node (* specifically the Block variant *) [@@deriving show]
+and block = fat_node list [@@deriving show]
 
 and enum_variant = {
 	name : string;
