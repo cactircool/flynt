@@ -27,7 +27,8 @@ type scope =
 	| FunctionTypeParams
 	| FunctionArguments
 	| IndexArguments
-	| ForBlock
+	| StandardLoopBlock
+	| BreakingLoopBlock
 	| ArrayInitializer
 
 (* TODO: pretty print *)
@@ -107,6 +108,8 @@ let is_decl (tok : Token.t) : bool =
 	| Token.Space
 	| Token.Use
 	| Token.Import -> true
+
+	| Token.For | Token.Until -> true (* this is weird to think about, but breaking for should ONLY be used in an expression *)
 	| _ -> false
 
 let parse_delimited
@@ -216,12 +219,15 @@ and parse_scope scope imports s : Shell_ast.bounds * (Shell_ast.fat_node list) *
 			~opening:Token.OpenBrace ~closing:Token.ClosedBrace ~delimiter:Token.Comma ~delim_optional:true
 			~unit_concept:"enum variant" ~allow_trailing:true
 			~unit_parser:(fun imports s ->
-				let (name, start) =
-					expect_token s None (function | Token.Id name -> Some name | _ -> None)
-						"A variant in an enum must start with an id, followed by the type it represents."
-				in
-				let (annotation, imports) = parse_type_annotation imports s in
-				(((start, Shell_ast.last annotation), Shell_ast.EnumVariant { name = name; type_ = annotation; }), imports)
+				let start = unwrap_token s None in
+				match start.token with
+				| Token.Fn -> parse_function imports s
+				| Token.Id name ->
+					let (annotation, imports) = parse_type_annotation imports s in
+					(((start, Shell_ast.last annotation), Shell_ast.EnumVariant { name = name; type_ = annotation; }), imports)
+				| _ ->
+					syntax_error start start
+						"Enums must only contain methods or variant defintions."
 			) imports s
 	| AnonymousEnum ->
 		parse_delimited
@@ -273,21 +279,38 @@ and parse_scope scope imports s : Shell_ast.bounds * (Shell_ast.fat_node list) *
 			~opening:Token.OpenBrace ~closing:Token.ClosedBrace
 			~unit_concept:"match case"
 			~unit_parser:(fun imports s ->
-				let (expr, imports) = parse_expr imports s in
-				let (start, _) = Shell_ast.bounds expr in
+				let (pattern, imports) = parse_expr imports s in
+				let (start, pattern_last) = Shell_ast.bounds pattern in
+				let (guard, imports, guard_last) =
+					let last = unwrap_peek_token s (Some start) in
+					match last.token with
+					| Token.If -> (
+						discard_pop s;
+						let guard, imports = parse_expr imports s in
+						Some guard, imports, last
+					)
+					| _ -> None, imports, pattern_last
+				in
 				let (arrow, last) =
-					expect_token s None (function | Token.Arrow -> Some true | Token.Comma -> Some false | _ -> None)
-						"match case expression must be followed by '->' (don't fallthrough) or ',' (fallthrough)."
+					let last = unwrap_peek_token s (Some guard_last) in
+					match last.token with
+					| Token.Arrow -> (
+						discard_pop s;
+						true, last
+					)
+					| _ -> false, guard_last
 				in
 				if arrow then
 					let ((logic_start, last), logic, imports) = parse_scope Code imports s in
 					((start, last), Shell_ast.MatchCase {
-						expr = expr;
+						pattern = pattern;
+						guard = guard;
 						logic = Some ((logic_start, last), Shell_ast.Block logic);
 					}), imports
 				else
 					((start, last), Shell_ast.MatchCase {
-						expr = expr;
+						pattern = pattern;
+						guard = guard;
 						logic = None;
 					}), imports
 			) imports s
@@ -321,7 +344,7 @@ and parse_scope scope imports s : Shell_ast.bounds * (Shell_ast.fat_node list) *
 			~unit_concept:"index argument"
 			~unit_parser:parse_expr
 			imports s
-	| ForBlock ->
+	| StandardLoopBlock ->
 		parse_delimited
 			~opening:Token.OpenBrace ~closing:Token.ClosedBrace
 			~unit_concept:"for block"
@@ -330,24 +353,41 @@ and parse_scope scope imports s : Shell_ast.bounds * (Shell_ast.fat_node list) *
 				match start.token with
 				| Token.Break -> (
 					discard_pop s;
-					let last = unwrap_peek_token s (Some start) in
-					match last.token with
-					| Token.SemiColon -> ((start, last), Shell_ast.Break None), imports
-					| _ -> (
-						let (expr, imports) = parse_expr imports s in
-						((start, Shell_ast.last expr), Shell_ast.Break (Some expr)), imports
-					)
+					((start, start), Shell_ast.StandardBreak), imports
 				)
 				| Token.Continue -> (
 					discard_pop s;
 					((start, start), Shell_ast.Continue), imports
 				)
 				| Token.OpenBrace ->
-					let (bnds, block, imports) = parse_scope ForBlock imports s in
+					let (bnds, block, imports) = parse_scope StandardLoopBlock imports s in
 					(bnds, Shell_ast.Block block), imports
 				| t when is_decl t -> parse_decl imports s
 				| _ -> parse_expr imports s
 			) imports s
+	| BreakingLoopBlock -> (
+		parse_delimited
+			~opening:Token.OpenBrace ~closing:Token.ClosedBrace
+			~unit_concept:"for block"
+			~unit_parser:(fun imports s ->
+				let start = unwrap_peek_token s None in
+				match start.token with
+				| Token.Break -> (
+					discard_pop s;
+					let (expr, imports) = parse_expr imports s in
+					((start, Shell_ast.last expr), Shell_ast.YieldingBreak expr), imports
+				)
+				| Token.Continue -> (
+					discard_pop s;
+					((start, start), Shell_ast.Continue), imports
+				)
+				| Token.OpenBrace ->
+					let (bnds, block, imports) = parse_scope BreakingLoopBlock imports s in
+					(bnds, Shell_ast.Block block), imports
+				| t when is_decl t -> parse_decl imports s
+				| _ -> parse_expr imports s
+			) imports s
+	)
 	| ArrayInitializer ->
 		parse_delimited
 			~opening:Token.OpenBrace ~closing:ClosedBrace ~delimiter:Token.Comma
@@ -368,7 +408,10 @@ and parse_decl imports s : pres =
 		| Token.Enum -> parse_enum imports s
 		| Token.Space -> parse_space imports s
 		| Token.Use -> parse_use imports s
-		| Token.Import -> parse_import imports s
+
+		| Token.For -> parse_for false imports s (* to allow for standard for/while loops *)
+		| Token.Until -> parse_until false imports s
+		(* | Token.Import -> parse_import imports s <- offlaoded to aliases with let *)
 		| _ ->
 			syntax_error
 				start start
@@ -383,21 +426,70 @@ and parse_decl imports s : pres =
 
 and parse_variable imports s : pres =
 	(*
-		let name : type = value
+		let name type = value
 		let name = value
-		let name : type
+		let name type
+		let name = declaration (functions decay to lambdas (i.e. valid expressions)) <- this is an immutable alias I guess
 	*)
 	let (name, start) =
 		expect_token s None (function | Token.Id name -> Some name | _ -> None) "'let' must be followed by an id." in
 	let last = unwrap_token s (Some start) in
 	match last.token with
-	| Token.AssignmentEquals ->
-		let (value, imports) = parse_expr imports s in
-		((start, (Shell_ast.last value)), Shell_ast.Variable {
-			name = name;
-			type_ = None;
-			value = Some value;
-		}), imports
+	| Token.AssignmentEquals -> (
+		let next = unwrap_peek_token s (Some start) in
+		match next.token with
+		| Token.Space -> (
+			discard_pop s;
+			let ((_, member_last), members, imports) = parse_scope Space imports s in
+			(
+				(start, member_last),
+				Shell_ast.Alias {
+					name = name;
+					annotation = (
+						(next, member_last),
+						Shell_ast.Space {
+							name = (false, []);
+							members = members;
+						}
+					);
+				}
+			), imports
+		)
+		| Token.Import -> (
+			discard_pop s;
+			let (import, imports) = parse_import imports s in
+			(
+				(start, Shell_ast.last import),
+				Shell_ast.Alias {
+					name = name;
+					annotation = import
+				}
+			), imports
+		)
+		| Token.Fn -> (
+			let (value, imports) = parse_expr imports s in
+			((start, (Shell_ast.last value)), Shell_ast.Variable {
+				name = name;
+				type_ = None;
+				value = Some value;
+			}), imports
+		)
+		| t when is_decl t -> (
+			let (annotation, imports) = parse_type_annotation imports s in
+			((start, Shell_ast.last annotation), Shell_ast.Alias {
+				name = name;
+				annotation = annotation;
+			}), imports
+		)
+		| _ -> (
+			let (value, imports) = parse_expr imports s in
+			((start, (Shell_ast.last value)), Shell_ast.Variable {
+				name = name;
+				type_ = None;
+				value = Some value;
+			}), imports
+		)
+	)
 	| t when (is_type_annotation t) -> (
 		Lexer.push last s;
 		let (type_, imports) = parse_type_annotation imports s in
@@ -558,10 +650,10 @@ and parse_type imports s : pres =
 		let (annotation, imports) = parse_type_annotation imports s in
 		(
 			(start, (Shell_ast.last annotation)),
-			Shell_ast.Alias (
-				name,
-				annotation
-			)
+			Shell_ast.Alias {
+				name = name;
+				annotation = annotation;
+			}
 		), imports
 	)
 	| _ -> syntax_error start last "unreachable"
@@ -770,30 +862,63 @@ and parse_match imports s : pres =
 		}
 	), imports
 
-and parse_for imports s : pres =
+and parse_for force_breaking imports s : pres =
 	(* a; b; c -> {a}; {b}; {c} *)
 	let ((init_start, _), init, imports) = parse_scope Code imports s in
-	let (condition, imports) = parse_expr imports s in
-	let (_, iter, imports) = parse_scope Code imports s in
-	let ((_, block_last), block, imports) = parse_scope ForBlock imports s in
-	((init_start, block_last), Shell_ast.For {
-		init = init;
-		condition = condition;
-		iter = iter;
-		block = block;
-	}), imports
+	let ((next_start, next_last), next, imports) = parse_scope Code imports s in
 
-and parse_until imports s : pres =
-	(* until expr { ... } *)
-	let (condition, imports) = parse_expr imports s in
-	let ((_, block_last), block, imports) = parse_scope Code imports s in
-	(
-		(Shell_ast.start condition, block_last),
-		Shell_ast.Until {
-			condition = condition;
+	let peek = unwrap_peek_token s (Some next_start) in
+	match peek.token with
+	| Token.OpenBrace ->
+		let ((_, block_last), block, imports) = parse_scope BreakingLoopBlock imports s in
+		((init_start, block_last), Shell_ast.BreakingFor {
+			init = init;
+			iter = next;
 			block = block;
-		}
-	), imports
+		}), imports
+	| _ ->
+		if force_breaking then (
+			syntax_error peek peek "expected breaking for loop, got standard."
+		) else (
+			let condition =
+				match next with
+				| [h] -> h
+				| t -> (next_start, next_last), Shell_ast.Block t
+			in
+			let (_, iter, imports) = parse_scope Code imports s in
+			let ((_, block_last), block, imports) = parse_scope StandardLoopBlock imports s in
+			((init_start, block_last), Shell_ast.StandardFor {
+				init = init;
+				condition = condition;
+				iter = iter;
+				block = block;
+			}), imports
+		)
+
+and parse_until force_breaking imports s : pres =
+	(* until expr { ... } *)
+	let peek = unwrap_peek_token s None in
+	match peek.token with
+	| Token.OpenBrace ->
+		let (block_bnds, block, imports) = parse_scope BreakingLoopBlock imports s in
+		(
+			block_bnds,
+			Shell_ast.BreakingUntil block
+		), imports
+	| _ ->
+		if force_breaking then (
+			syntax_error peek peek "expected breaking until loop, got standard."
+		) else (
+			let (condition, imports) = parse_expr imports s in
+			let ((_, block_last), block, imports) = parse_scope StandardLoopBlock imports s in
+			(
+				(Shell_ast.start condition, block_last),
+				Shell_ast.StandardUntil {
+					condition = condition;
+					block = block;
+				}
+			), imports
+		)
 
 and parse_lambda imports s : pres =
 	(* fn(type,type,type)returntype {...} || fn(type,...)ret = code *)
@@ -967,11 +1092,11 @@ and parse_atom imports s : (Shell_ast.fat_node option) * (string list) =
 		(Some res, imports)
 	)
 	| Token.Until -> (
-		let (res, imports) = parse_until imports s in
+		let (res, imports) = parse_until true imports s in
 		(Some res, imports)
 	)
 	| Token.For -> (
-		let (res, imports) = parse_for imports s in
+		let (res, imports) = parse_for true imports s in
 		(Some res, imports)
 	)
 	| Token.Match -> (
@@ -1027,45 +1152,41 @@ and parse_postfix imports s (acc : Shell_ast.fat_node) : pres =
 	| Token.OpenBrace -> (
 		match acc with
 		| (_, Shell_ast.Reference _) -> (
-			let initializer_parse_scope imports s : Lexer.fat_token * ((string * Shell_ast.fat_node) list) * (string list) =
-				let single imports s : (string * Shell_ast.fat_node * (string list)) =
-					let (member, last) =
-						expect_token s (Some start) (function | Token.Id name -> Some name | _ -> None)
-							"initializer member assignment must start with the member name, followed by ':', and then a value to assign it."
+			let initializer_parse_scope imports s : Lexer.fat_token * (Shell_ast.fat_node list) * (string list) =
+				let unit_parser imports s =
+					let (name, last) =
+						expect_token s None
+							(function | Token.Id name -> Some name | _ -> None)
+							"expected an id to represent the member being bound or assigned."
 					in
 
-					let _ =
-						simple_expect_token s (Some last) Token.Colon
-							"colon needs to delimit the member name and the value in an initializer."
-					in
-
-					let (value, imports) = parse_expr imports s in
-					(member, value, imports)
+					match (unwrap_peek_token s (Some last)).token with
+					| Token.Colon -> (
+						discard_pop s;
+						let (value, imports) = parse_expr imports s in
+						((last, Shell_ast.last value), Shell_ast.MemberAssignment {
+							name = name;
+							value = value;
+						}), imports
+					)
+					| _ -> ((last, last), Shell_ast.Reference (false, [name])), imports
 				in
 
-				let rec loop s (start : Lexer.fat_token) (comma_found : bool) imports (acc : (string * Shell_ast.fat_node) list) : Lexer.fat_token * ((string * Shell_ast.fat_node) list) * (string list) =
-					let start = unwrap_peek_token s (Some start) in
-					match start.token with
-					| Token.ClosedBrace -> (discard_pop s; (start, List.rev acc, imports))
-					| Token.Comma -> (
-						if comma_found then (
-							syntax_error
-								start start
-								"only one comma (+ one trailing) can delimit argument assignments in an initializer."
-						) else (
-							(discard_pop s; loop s start true imports acc)
-						)
-					)
-					| _ -> (
-						let (thing_tag, thing, imports) = single imports s in
-						loop s start false imports ((thing_tag, thing) :: acc)
-					)
+				let ((_, last), args, imports) =
+					parse_delimited
+						~opening:Token.OpenBrace
+						~closing:Token.ClosedBrace
+						~delimiter:Token.Comma
+						~delim_optional:true
+						~allow_none:true
+						~allow_trailing:true
+						~unit_concept:"initializer member assignment"
+						~unit_parser
+						imports s
 				in
 
-				let (last, nodes, imports) = loop s start false imports [] in
-				(last, nodes, imports)
+				(last, args, imports)
 			in
-			discard_pop s;
 			let (last, args, imports) = initializer_parse_scope imports s in
 			parse_postfix imports s (
 				(Shell_ast.start acc, last), Shell_ast.Initializer {
@@ -1076,7 +1197,7 @@ and parse_postfix imports s (acc : Shell_ast.fat_node) : pres =
 		)
 		| _ -> (acc, imports)
 	)
-	| _ -> (acc, imports)
+	| _ -> acc, imports
 
 and parse_type_annotation imports s : pres =
 	let raw_type_annotation imports s =
@@ -1143,19 +1264,6 @@ and parse_type_annotation imports s : pres =
 
 	let start = unwrap_peek_token s None in
 	match start.token with
-	| Token.OpenBracket -> (
-		discard_pop s;
-		let (size, imports) = parse_expr imports s in
-		let _ = simple_expect_token s None Token.ClosedBracket
-			"statically sized array type must follow [<size>]<unit_type>."
-		in
-
-		let (type_, imports) = parse_type_annotation imports s in
-		((start, Shell_ast.last type_), ArrayType {
-			size = size;
-			type_ = type_;
-		}), imports
-	)
 	| t when ((Token.binaryify t) = Token.Multiply) -> (
 		discard_pop s;
 		let (inner, imports) = parse_type_annotation imports s in
@@ -1251,8 +1359,8 @@ let rec stringify_node node : string =
 			else
 				"type " ^ layer.name ^ " " ^ stringify_block layer.members
 
-	| Shell_ast.Alias (name, target) ->
-			"type " ^ name ^ " = " ^ stringify_node target
+	| Shell_ast.Alias {name;annotation} ->
+			"type " ^ name ^ " = " ^ (stringify_node annotation)
 
 	| Shell_ast.Tuple block ->
 			stringify_block ~op:"(" ~cl:")" ~sep:"," block
@@ -1295,17 +1403,12 @@ let rec stringify_node node : string =
 			"*" ^ (stringify_node inner)
 
 	| Shell_ast.FunctionType { params; result } ->
-		"fn" ^ (stringify_block ~op:"(" ~cl:")" ~sep:"," params) ^ (match result with
-			| Some ty -> stringify_node ty
-			| None -> "")
+		"fn" ^ (stringify_block ~op:"(" ~cl:")" ~sep:"," params) ^ ((match result with | Some r -> stringify_node r | None -> ""))
 
 	| Shell_ast.Lambda { params; result; code } ->
 		"fn" ^ (stringify_block ~op:"(" ~cl:")" ~sep:"," params) ^ (match result with
 			| Some ty -> stringify_node ty
 			| None -> "") ^ " " ^ (stringify_block code)
-
-	| Shell_ast.ArrayType { size; type_ } ->
-		"[" ^ (stringify_node size) ^ "]" ^ (stringify_node type_)
 
 	| Shell_ast.Variadic inner ->
 		"..." ^ (stringify_node inner)
@@ -1329,25 +1432,34 @@ let rec stringify_node node : string =
 	| Shell_ast.Match { switcher; cases } ->
 			"match " ^ stringify_node switcher ^ " " ^ stringify_block cases
 
-	| Shell_ast.MatchCase { expr; logic } ->
-			stringify_node expr ^
+	| Shell_ast.MatchCase { pattern; guard; logic } ->
+			stringify_node pattern ^
+			(match guard with
+			| Some g -> " if " ^ (stringify_node g)
+			| None -> " ") ^
 			(match logic with
-			 | None -> ","
+			 | None -> ""
 			 | Some l -> " -> " ^ stringify_node l)
 
-	| Shell_ast.For { init; condition; iter; block } ->
+	| Shell_ast.StandardFor { init; condition; iter; block } ->
 			"for " ^ (stringify_block init) ^ "; " ^ (stringify_node condition) ^ "; " ^ (stringify_block iter) ^ " " ^ (stringify_block block)
 
-	| Shell_ast.Until { condition; block } ->
+	| Shell_ast.BreakingFor { init; iter; block } ->
+			"for " ^ (stringify_block init) ^ "; " ^ (stringify_block iter) ^ " " ^ (stringify_block block)
+
+	| Shell_ast.StandardUntil { condition; block } ->
 			"until " ^ stringify_node condition ^ " " ^ (stringify_block block)
+
+	| Shell_ast.BreakingUntil block ->
+			"until " ^ (stringify_block block)
 
 	| Shell_ast.Block nodes ->
 			stringify_block nodes
 
-	| Shell_ast.Break None ->
+	| Shell_ast.StandardBreak ->
 			"brk"
 
-	| Shell_ast.Break (Some expr) ->
+	| Shell_ast.YieldingBreak expr ->
 			"brk " ^ stringify_node expr
 
 	| Shell_ast.Continue ->
@@ -1381,9 +1493,7 @@ let rec stringify_node node : string =
 
 	| Shell_ast.Initializer { type_; args } ->
 			stringify_node type_ ^ " { " ^
-			String.concat ", " (List.map (fun (name, value) ->
-				name ^ ": " ^ stringify_node value
-			) args) ^
+			(String.concat ", " (List.map stringify_node args)) ^
 			" }"
 
 	| Shell_ast.TupleExpr exprs ->
@@ -1425,6 +1535,9 @@ let rec stringify_node node : string =
 
 	| Shell_ast.False _ ->
 			"false"
+
+	| Shell_ast.MemberAssignment {name; value} ->
+		name ^ ": " ^ (stringify_node value)
 
 and stringify_block ?(op="{") ?(cl="}") ?(sep=";") things =
 	op ^ " " ^ (String.concat (sep ^ " ") (List.map stringify_node things)) ^ " " ^ cl

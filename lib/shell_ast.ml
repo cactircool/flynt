@@ -11,7 +11,10 @@ type node =
 
 	| Variable of variable
 	| Type of layer (* name = "" for anonymous *)
-	| Alias of string * fat_node
+	| Alias of {
+		name : string;
+		annotation : fat_node;
+	}
 	| Tuple of block
 	| Function of (string function_t)
 	| OperatorOverload of {
@@ -37,10 +40,6 @@ type node =
 		result : fat_node option;
 		code : block;
 	}
-	| ArrayType of {
-		size: fat_node;
-		type_ : fat_node;
-	}
 	| Variadic of fat_node
 
 	| Use of id
@@ -58,23 +57,32 @@ type node =
 		cases : block;
 	}
 	| MatchCase of {
-		expr : fat_node;
+		pattern : fat_node;
+		guard : fat_node option;
 		logic : fat_node option;
 	}
-	| For of {
+	| StandardFor of {
 		init : block;
 		condition : fat_node;
 		iter : block;
 
 		block : block;
 	}
-	| Until of {
+	| BreakingFor of {
+		init : block;
+		iter : block;
+		block : block;
+	}
+	(* TODO: add breaking for and breaking until (and edit parse_for and parse_until to match) *)
+	| StandardUntil of {
 		condition : fat_node;
 		block : block;
 	}
+	| BreakingUntil of block
 
 	| Block of fat_node list
-	| Break of fat_node option
+	| StandardBreak
+	| YieldingBreak of fat_node
 	| Continue
 	| Binary of {
 		left : fat_node;
@@ -96,7 +104,11 @@ type node =
 	}
 	| Initializer of {
 		type_ : fat_node;
-		args : (string * fat_node) list;
+		args : fat_node list;
+	}
+	| MemberAssignment of {
+		name : string;
+		value : fat_node;
 	}
 	| ArrayInitializer of {
 		size : fat_node option;

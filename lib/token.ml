@@ -67,8 +67,6 @@ type t =
 	| LeftDereference
 	| LeftReference
 	| LeftDollar
-	| Alloc
-	| Clean
 	(* Precedence=3 *)
 	| Multiply
 	| Divide
@@ -142,8 +140,6 @@ module KeywordTrie = struct
 			("use", Use);
 			("asm", Asm);
 			("import", Import);
-			("alloc", Alloc);
-			("clean", Clean);
 			("in", In);
 			("is", Is);
 			("as", As);
@@ -357,8 +353,6 @@ let left (tok : t) : bool =
 	| LeftDereference
 	| LeftReference
 	| LeftDollar
-	| Alloc
-	| Clean
 	| LeftSpread -> true
 	| _ -> false
 
@@ -444,8 +438,6 @@ let prec (tok : t) : int option =
 	| LeftDereference
 	| LeftReference
 	| LeftDollar
-	| Alloc
-	| Clean -> Some 2
 	(* Precedence=3 *)
 	| Multiply
 	| Divide
@@ -671,8 +663,6 @@ let value (tok : t) : string =
 	| LeftDereference -> "*"
 	| LeftReference -> "&"
 	| LeftDollar -> "$"
-	| Alloc -> "alloc"
-	| Clean -> "clean"
 	(* Precedence=3 *)
 	| Multiply -> "*"
 	| Divide -> "/"
@@ -875,9 +865,7 @@ let bp (tok : t) : (int option * int option) =
 	| LeftBitwiseNot
 	| LeftDereference
 	| LeftReference
-	| LeftDollar
-	| Alloc
-	| Clean -> (None, Some 2)
+	| LeftDollar -> (None, Some 2)
 
 	(* Precedence=3 - Multiplicative, left-to-right *)
 	| Multiply

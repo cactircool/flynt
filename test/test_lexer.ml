@@ -67,7 +67,6 @@ let test_basic_popping () =
 		(List.map (strip_fat Token.show) toks)
 
 
-(* TODO: implement *)
 let test_fat_token_production () =
 	let toks = collect (lexer_of_string "x y z\nx y z") in
 	let expected : Lexer.fat_token list = [
@@ -84,7 +83,6 @@ let test_fat_token_production () =
 		expected
 		toks
 
-(* TODO: implement *)
 let test_peeking () =
 	let l = lexer_of_string "x y z" in
 	let token = Result.get_ok (Lexer.peek l) in
@@ -117,7 +115,6 @@ let test_peeking () =
 		{ token = Token.Id "y"; pos = 2; line = 0; col = 2 }
 		token
 
-(* TODO: implement *)
 let test_pushing_and_popping () =
 	let l = lexer_of_string "a" in
 	for i = 0 to 100 do
@@ -147,7 +144,6 @@ let test_pushing_and_popping () =
 	)
 	| Error e -> explode_error e
 
-(* TODO: implement *)
 let test_resolution () =
 	let toks = collect (lexer_of_string "++a + +b+") in
 	let expected = [

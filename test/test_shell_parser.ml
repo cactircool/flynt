@@ -282,16 +282,16 @@ let control_flow_tests = [
     | Match _ -> ()
     | _ -> Alcotest.fail "expected Match");
 
-  test_parse_expr "match with fallthrough" "match (x) { 1, 2 -> { } }" (function
+  test_parse_expr "match with fallthrough" "match (x) { 1 2 -> { } }" (function
     | Match _ -> ()
     | _ -> Alcotest.fail "expected Match");
 
-  test_parse_expr "for loop" "for let i = 0; i < 10; i++ { }" (function
-    | For _ -> ()
+  test_parse_gen "for loop" "for let i = 0; i < 10; i++ { }" (function
+    | StandardFor _ -> ()
     | _ -> Alcotest.fail "expected For");
 
-  test_parse_expr "until loop" "until (done) { }" (function
-    | Until _ -> ()
+  test_parse_gen "until loop" "until (done) { }" (function
+    | StandardUntil _ -> ()
     | _ -> Alcotest.fail "expected Until");
 ]
 
@@ -328,7 +328,7 @@ let initializer_tests = [
 
   test_parse_expr "nested initializer"
     "Outer { inner: Inner { x: 1 } }" (function
-    | Initializer { args = [_, (_, Initializer _)]; _ } -> ()
+    | Initializer { args = [(_, MemberAssignment { name = _; value = (_, Initializer _) })]; _ } -> ()
     | _ -> Alcotest.fail "expected nested initializer");
 ]
 
@@ -396,7 +396,7 @@ let space_tests = [
 let import_use_tests = [
   test_parse_success "use statement" "use std::io" [];
   test_parse_success "root use" "use ::std::io" [];
-  test_parse_success "import statement" "import \"lib.shell\"" [];
+  test_parse_success "import statement" "let lib = import \"lib.shell\"" [];
 ]
 
 (* Pointer type tests *)
@@ -461,7 +461,7 @@ let program_tests = [
      let origin = Point { x: 0, y: 0 }" [];
 
   test_parse_success "program with imports"
-    "import \"std.shell\"
+    "let std = import \"std.shell\"
      use std::io
      fn main() { io::println(\"hello\") }" [];
 ]
@@ -543,7 +543,7 @@ let lambda_tests = [
 
   test_parse_expr "lambda in initializer"
     "Handler { callback: fn(x i32) { } }" (function
-    | Initializer { args = [_, (_, Lambda _)]; _ } -> ()
+    | Initializer { args = [_, MemberAssignment { value = (_, Lambda _); _ }]; _ } -> ()
     | _ -> Alcotest.fail "expected initializer with lambda field");
 
   test_parse_gen "lambda as binary operand"
@@ -606,7 +606,7 @@ let function_type_tests = [
     "type Callback = fn(i32, i32)i32" [];
 
   test_parse_success "array of function types"
-    "let handlers [4]fn()i32" [];
+    "let handlers *fn()i32 = [4]fn()i32{}" [];
 
   test_parse_success "pointer to function type"
     "let fptr *fn(i32)i32" [];
@@ -663,12 +663,12 @@ let lambda_function_edge_cases = [
 
   test_parse_expr "lambda with for loop"
     "fn() { for let i = 0; i < 10; i++ { } }" (function
-    | Lambda { code = [_, For _]; _ } -> ()
+    | Lambda { code = [_, StandardFor _]; _ } -> ()
     | _ -> Alcotest.fail "expected lambda with for loop");
 
   test_parse_expr "lambda with until loop"
     "fn(done bool) { until (done) { } }" (function
-    | Lambda { code = [_, Until _]; _ } -> ()
+    | Lambda { code = [_, StandardUntil _]; _ } -> ()
     | _ -> Alcotest.fail "expected lambda with until loop");
 
   test_parse_success "recursive function type"
@@ -703,7 +703,7 @@ let lambda_function_edge_cases = [
 (* Integration tests with existing features *)
 let lambda_integration_tests = [
   test_parse_success "complete higher-order function example"
-    "fn map(arr [6]i32, f fn(i32)i32) [6]i32 {
+    "fn map(arr *i32, f fn(i32)i32) *i32 {
        let result = [6]i32 {}
        for let i = 0; i < 10; i++ {
          result[i] = f(arr[i])
