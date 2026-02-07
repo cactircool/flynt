@@ -1,6 +1,6 @@
 (* (bounds, from_root, id chain) *)
-type bounds = Lexer.fat_token * Lexer.fat_token [@@deriving show]
-type id = bool * string list [@@deriving show]
+type bounds = Lexer.fat_token * Lexer.fat_token [@@deriving show, eq]
+type id = bool * string list [@@deriving show, eq]
 
 type node =
 	| Program of (string * block) list

@@ -165,18 +165,27 @@ let gen_op = function
 	| t -> raise (InternalError (Printf.sprintf "invalid operator: '%s'" (Token.value t)))
 
 let map_nodes mapper nodes state =
-	List.rev_map (mapper state) nodes |> List.rev
+	(* let rec loop bnds stack acc =
+		match stack with
+		| [] -> bnds, acc
+		| h::t ->
+			loop (fst bnds, snd (fst h)) t ((mapper state h)::acc)
+	in
+	match nodes with
+	| [] -> (Lexer.eof, Lexer.eof), []
+	| nodes -> loop (fst (List.hd nodes), Lexer.eof) nodes [] *)
+	List.map (mapper state) nodes
 
 let parse_access_restricted f state node : 'a access_restricted =
 	match node with
-	| (_, Pub inner) ->
-		ARPub (f state inner)
-	| (_, Priv inner) ->
-		ARPriv (f state inner)
-	| (_, Stat inner) ->
-		ARStat (f state inner)
-	| n ->
-		ARPriv (f state n)
+	| (bnds, Pub inner) ->
+		ARPub (bnds, (f state inner))
+	| (bnds, Priv inner) ->
+		ARPriv (bnds, (f state inner))
+	| (bnds, Stat inner) ->
+		ARStat (bnds, (f state inner))
+	| (bnds, n) ->
+		ARPriv (bnds, (f state (bnds, n)))
 
 let wrap_ctx ctx state f =
 	let state' = Core_ast.push_ctx ctx state in
@@ -234,139 +243,139 @@ and parse_decl file state node : decl =
 	match node with
 	| (_, Program _) -> raise (InternalError (Printf.sprintf "nested programs detected when parsing '%s'." file))
 	| (bnds, Variable {name;type_;value}) ->
-		let var = parse_variable bnds file state name type_ value in
+		let var = parse_variable file bnds state name type_ value in
 		DVariable var
-	| (_, Type {name; members}) ->
-		let t = parse_type file state name members in
+	| (bnds, Type {name; members}) ->
+		let t = parse_type file bnds state name members in
 		DType t
-	| (_, Alias {name;annotation}) ->
-		let alias = parse_alias file state name annotation in
+	| (bnds, Alias {name;annotation}) ->
+		let alias = parse_alias file bnds state name annotation in
 		DAlias alias
-	| (_, Function {name; params; result; code}) ->
-		let f = parse_function file state name params result code in
+	| (bnds, Function {name; params; result; code}) ->
+		let f = parse_function file bnds state name params result code in
 		DFunction f
 	| (bnds, OperatorOverload {name; params; result; code}) ->
-		let oo = parse_oper_overload bnds file state name params result code in
+		let oo = parse_oper_overload file bnds state name params result code in
 		DOperOverload oo
-	| (_, Enum {name; members}) ->
-		let enum = parse_enum file state name members in
+	| (bnds, Enum {name; members}) ->
+		let enum = parse_enum file bnds state name members in
 		DEnum enum
-	| (_, Space {name; members}) ->
-		let space = parse_space file state name members in
+	| (bnds, Space {name; members}) ->
+		let space = parse_space file bnds state name members in
 		DSpace space
 	| (bnds, _) -> raise (FatalError (file, bnds, "expected a declaration."))
 
 and parse_stmt file state node : stmt =
 	match node with
-	| (_, Use id) ->
-		let use = parse_use file state id in
+	| (bnds, Use id) ->
+		let use = parse_use file bnds state id in
 		SUnresolvedUse use
-	| (_, StandardBreak) ->
-		SStandardBreak
+	| (bnds, StandardBreak) ->
+		SStandardBreak bnds
 	| (bnds, YieldingBreak expr) ->
-		let brk = parse_yielding_break bnds file state expr in
+		let brk = parse_yielding_break file bnds state expr in
 		SYieldingBreak brk
-	| (_, Continue) ->
-		SContinue
-	| (_, StandardFor {init; condition; iter; block}) ->
-		let for_ = parse_standard_for file state init condition iter block in
+	| (bnds, Continue) ->
+		SContinue bnds
+	| (bnds, StandardFor {init; condition; iter; block}) ->
+		let for_ = parse_standard_for file bnds state init condition iter block in
 		SFor for_
-	| (_, StandardUntil {condition; block}) ->
-		let until = parse_standard_until file state condition block in
+	| (bnds, StandardUntil {condition; block}) ->
+		let until = parse_standard_until file bnds state condition block in
 		SUntil until
 	| (bnds, _) -> raise (FatalError (file, bnds, "expected a statement."))
 
 and parse_expr file state node : expr =
 	match node with
-	| (_, Lambda {params; result; code}) ->
-		let lambda = parse_lambda file state params result code in
+	| (bnds, Lambda {params; result; code}) ->
+		let lambda = parse_lambda file bnds state params result code in
 		ELambda lambda
-	| (_, If {condition; true_block; false_block}) ->
-		let i = parse_if file state condition true_block false_block in
+	| (bnds, If {condition; true_block; false_block}) ->
+		let i = parse_if file bnds state condition true_block false_block in
 		EIf i
-	| (_, Match {switcher; cases}) ->
-		let m = parse_match file state switcher cases in
+	| (bnds, Match {switcher; cases}) ->
+		let m = parse_match file bnds state switcher cases in
 		EMatch m
-	| (_, BreakingFor {init; iter; block}) ->
-		let f = parse_breaking_for file state init iter block in
+	| (bnds, BreakingFor {init; iter; block}) ->
+		let f = parse_breaking_for file bnds state init iter block in
 		EFor f
-	| (_, BreakingUntil block) ->
-		let u = parse_breaking_until file state block in
+	| (bnds, BreakingUntil block) ->
+		let u = parse_breaking_until file bnds state block in
 		EUntil u
-	| (_, Block block) ->
-		let b = parse_block file state block in
+	| (bnds, Block block) ->
+		let b = parse_block file bnds state block in
 		EBlock b
-	| (_, Binary {left; op; right}) ->
-		let b = parse_binary file state left op right in
+	| (bnds, Binary {left; op; right}) ->
+		let b = parse_binary file bnds state left op right in
 		EBinary b
-	| (_, Unary {op; arg}) ->
-		let u = parse_unary file state op arg in
+	| (bnds, Unary {op; arg}) ->
+		let u = parse_unary file bnds state op arg in
 		EUnary u
-	| (_, Reference id) ->
-		EUnresolvedReference id
-	| (_, Call {from; args}) ->
-		let c = parse_call file state from args in
+	| (bnds, Reference id) ->
+		EUnresolvedReference (bnds, id)
+	| (bnds, Call {from; args}) ->
+		let c = parse_call file bnds state from args in
 		ECall c
-	| (_, Index {from; args}) ->
-		let i = parse_index file state from args in
+	| (bnds, Index {from; args}) ->
+		let i = parse_index file bnds state from args in
 		EIndex i
-	| (_, Initializer {type_; args}) ->
-		let i = parse_initializer file state type_ args in
+	| (bnds, Initializer {type_; args}) ->
+		let i = parse_initializer file bnds state type_ args in
 		EInitializer i
-	| (_, ArrayInitializer {size; type_; args}) ->
-		let ai = parse_array_initializer file state size type_ args in
+	| (bnds, ArrayInitializer {size; type_; args}) ->
+		let ai = parse_array_initializer file bnds state size type_ args in
 		EArrayInitializer ai
-	| (_, TupleExpr exprs) ->
-		let te = parse_tuple_expr file state exprs in
+	| (bnds, TupleExpr exprs) ->
+		let te = parse_tuple_expr file bnds state exprs in
 		ETuple te
-	| (_, Integer t) ->
-		let i = parse_literal file state t in
+	| (bnds, Integer t) ->
+		let i = parse_literal file bnds state t in
 		ELiteral i
-	| (_, Float t) ->
-		let f = parse_literal file state t in
+	| (bnds, Float t) ->
+		let f = parse_literal file bnds state t in
 		ELiteral f
-	| (_, Character t) ->
-		let c = parse_literal file state t in
+	| (bnds, Character t) ->
+		let c = parse_literal file bnds state t in
 		ELiteral c
-	| (_, String t) ->
-		let s = parse_literal file state t in
+	| (bnds, String t) ->
+		let s = parse_literal file bnds state t in
 		ELiteral s
-	| (_, True t) ->
-		let t = parse_literal file state t in
+	| (bnds, True t) ->
+		let t = parse_literal file bnds state t in
 		ELiteral t
-	| (_, False f) ->
-		let f = parse_literal file state f in
+	| (bnds, False f) ->
+		let f = parse_literal file bnds state f in
 		ELiteral f
 	| (bnds, _) -> raise (FatalError (file, bnds, "expected an expression."))
 
 and parse_annotation file state node : annotation =
 	match node with
-	| (_, Enum {members; _}) ->
-		let a = parse_nameless_enum file state members in
+	| (bnds, Enum {members; _}) ->
+		let a = parse_nameless_enum file bnds state members in
 		ANamelessEnum a
-	| (_, Type {members; _}) ->
-		let a = parse_nameless_type file state members in
+	| (bnds, Type {members; _}) ->
+		let a = parse_nameless_type file bnds state members in
 		ANamelessType a
-	| (_, Tuple members) ->
-		let a = parse_tuple file state members in
+	| (bnds, Tuple members) ->
+		let a = parse_tuple file bnds state members in
 		ATuple a
-	| (_, AnonymousEnum members) ->
-		let a = parse_anonymous_enum file state members in
+	| (bnds, AnonymousEnum members) ->
+		let a = parse_anonymous_enum file bnds state members in
 		AAnonymousEnum a
-	| (_, FunctionType {params; result}) ->
-		let a = parse_function_type file state params result in
+	| (bnds, FunctionType {params; result}) ->
+		let a = parse_function_type file bnds state params result in
 		AFunction a
-	| (_, Reference id) ->
-		AUnresolvedReference id
-	| (_, Variadic inner) ->
-		let a = parse_variadic file state inner in
+	| (bnds, Reference id) ->
+		AUnresolvedReference (bnds, id)
+	| (bnds, Variadic inner) ->
+		let a = parse_variadic file bnds state inner in
 		AVariadic a
-	| (_, Pointer inner) ->
-		let a = parse_pointer file state inner in
+	| (bnds, Pointer inner) ->
+		let a = parse_pointer file bnds state inner in
 		APointer a
 	| (bnds, _) -> raise (FatalError (file, bnds, "expected a type annotation."))
 
-and parse_variable bnds file state name type_ value =
+and parse_variable file bnds state name type_ value =
 	let type_ref =
 		match type_ with
 		| Some type_ ->
@@ -387,41 +396,44 @@ and parse_variable bnds file state name type_ value =
 		raise (FatalError (file, bnds, (Printf.sprintf "variable '%s' requires either an initial value or an explicit type annotation." name)))
 	else
 		{
+			bounds = bnds;
 			name = name;
 			type_ref = type_ref;
 			value = value
 		}
 
-and parse_type file state name members = {
+and parse_type file bnds state name members = {
+	bounds = bnds;
 	name = name;
-	members = (parse_nameless_type file state members);
+	members = (parse_nameless_type file bnds state members);
 }
 
-and parse_alias file state name value =
+and parse_alias file bnds state name value =
 	let value =
 		match value with
 		| (_, Space {members; _}) ->
 			let members = parse_nameless_space file state members in
 			ASpace members
-		| (_, Import {path}) ->
-			AImport path
+		| (bnds, Import {path}) ->
+			AImport (bnds, path)
 		| v ->
 			let annotation = parse_annotation file state v in
 			AAnnotation annotation
 	in
 	{
+		bounds = bnds;
 		name = name;
 		value = value
 	}
 
-and parse_function file state name params result code =
+and parse_function file bnds state name params result code =
 	let params =
 		wrap_ctx CFunctionParams state
 			(map_nodes
 				(fun state h ->
 					match h with
 					| (bnds, Variable {name; type_; value}) ->
-						parse_variable bnds file state name type_ value
+						parse_variable file bnds state name type_ value
 					| (bnds, _) -> raise (FatalError (file, bnds, "expected a parameter."))
 				) params)
 	in
@@ -440,13 +452,14 @@ and parse_function file state name params result code =
 	in
 
 	{
+		bounds = bnds;
 		name = name;
 		params = params;
 		return_type = result;
 		code = code
 	}
 
-and parse_oper_overload bnds file state op params result code =
+and parse_oper_overload file bnds state op params result code =
 	let op =
 		match op with
 		| Token.OpenBracket
@@ -470,7 +483,7 @@ and parse_oper_overload bnds file state op params result code =
 				(fun state h ->
 					match h with
 					| (bnds, Variable {name; type_; value}) ->
-						parse_variable bnds file state name type_ value
+						parse_variable file bnds state name type_ value
 					| (bnds, _) -> raise (FatalError (file, bnds, "expected a parameter."))
 				) params)
 	in
@@ -489,18 +502,21 @@ and parse_oper_overload bnds file state op params result code =
 	in
 
 	{
+		bounds = bnds;
 		op = op;
 		params = params;
 		return_type = result;
 		code = code
 	}
 
-and parse_enum file state name members = {
+and parse_enum file bnds state name members = {
+	bounds = bnds;
 	name = name;
-	members = (parse_nameless_enum file state members)
+	members = (parse_nameless_enum file bnds state members)
 }
 
-and parse_space file state name members = {
+and parse_space file bnds state name members = {
+	bounds = bnds;
 	name = name;
 	members = (parse_nameless_space file state members)
 }
@@ -511,16 +527,16 @@ and parse_nameless_space file state members =
 			(parse_access_restricted (parse_decl file))
 			members)
 
-and parse_use _file _state id = id
+and parse_use _file bnds _state id = bnds, id
 
-and parse_lambda file state params result code =
+and parse_lambda file bnds state params result code =
 	let params =
 		wrap_ctx CFunctionParams state
 			(map_nodes
 				(fun state h ->
 					match h with
 					| (bnds, Variable {name; type_; value}) ->
-						parse_variable bnds file state name type_ value
+						parse_variable file bnds state name type_ value
 					| (bnds, _) -> raise (FatalError (file, bnds, "expected parameter."))
 				) params)
 	in
@@ -541,12 +557,13 @@ and parse_lambda file state params result code =
 	in
 
 	{
+		bounds = bnds;
 		params = params;
 		return_type = result;
 		code = code
 	}
 
-and parse_if file state condition true_block false_block =
+and parse_if file bnds state condition true_block false_block =
 	let condition = parse_expr file state condition in
 	let true_block =
 		wrap_ctx CIf state
@@ -564,29 +581,31 @@ and parse_if file state condition true_block false_block =
 		| None -> []
 	in
 	{
+		bounds = bnds;
 		condition = condition;
 		true_block = true_block;
 		false_block = false_block
 	}
 
-and parse_match file state switcher cases =
+and parse_match file bnds state switcher cases =
 	let switcher = parse_expr file state switcher in
 	let cases =
 		wrap_ctx CMatch state
 			(map_nodes
 				(fun state h ->
 					match h with
-					| (_, MatchCase {pattern; guard; logic}) ->
-						parse_match_branch file state pattern guard logic
+					| (bnds, MatchCase {pattern; guard; logic}) ->
+						parse_match_branch file bnds state pattern guard logic
 					| (bnds, _) -> raise (FatalError (file, bnds, "expected a match branch."))
 				) cases)
 	in
 	{
+		bounds = bnds;
 		switcher = switcher;
 		logic = cases
 	}
 
-and parse_breaking_for file state init iter block =
+and parse_breaking_for file bnds state init iter block =
 	let init =
 		wrap_ctx CBFor state
 			(map_nodes
@@ -607,18 +626,19 @@ and parse_breaking_for file state init iter block =
 				block)
 	in
 	{
+		bounds = bnds;
 		init = init;
 		iter = iter;
 		code = code;
 	}
 
-and parse_breaking_until file state code =
-	wrap_ctx CBUntil state
+and parse_breaking_until file bnds state code =
+	bnds, wrap_ctx CBUntil state
 		(map_nodes
 			(parse_any file)
 			code)
 
-and parse_standard_for file state init condition iter code =
+and parse_standard_for file bnds state init condition iter code =
 	let init =
 		wrap_ctx CSFor state
 			(map_nodes
@@ -642,13 +662,14 @@ and parse_standard_for file state init condition iter code =
 				code)
 	in
 	{
+		bounds = bnds;
 		init = init;
 		condition = condition;
 		iter = iter;
 		code = code;
 	}
 
-and parse_standard_until file state condition code =
+and parse_standard_until file bnds state condition code =
 	let condition =
 		wrap_ctx CSUntil state
 			(fun s -> parse_expr file s condition)
@@ -660,24 +681,25 @@ and parse_standard_until file state condition code =
 				code)
 	in
 	{
+		bounds = bnds;
 		condition = condition;
 		code = code;
 	}
 
-and parse_block file state block =
-	wrap_ctx CBlock state
+and parse_block file bnds state block =
+	bnds, wrap_ctx CBlock state
 		(map_nodes
 			(parse_any file)
 			block)
 
-and parse_yielding_break bnds file state expr =
+and parse_yielding_break file bnds state expr =
 	if Core_ast.in_ctx CBFor state || Core_ast.in_ctx CBUntil state then (
-		parse_expr file state expr
+		bnds, (parse_expr file state expr)
 	) else (
 		raise (FatalError (file, bnds, "cannot use a yielding break in a non-breaking loop context."))
 	)
 
-and parse_binary file state left op right =
+and parse_binary file bnds state left op right =
 	let left = parse_expr file state left in
 	let op = gen_bin_op op in
 	let right =
@@ -687,12 +709,13 @@ and parse_binary file state left op right =
 			raise (InternalError "binary operator requires a right-side argument.")
 	in
 	{
+		bounds = bnds;
 		left = left;
 		op = op;
 		right = right;
 	}
 
-and parse_unary file state op arg =
+and parse_unary file bnds state op arg =
 	let op = gen_un_op op in
 	let arg =
 		match arg with
@@ -700,11 +723,12 @@ and parse_unary file state op arg =
 		| None -> raise (InternalError "unary operator requires one argument.")
 	in
 	{
+		bounds = bnds;
 		op = op;
 		arg = arg;
 	}
 
-and parse_call file state from args =
+and parse_call file bnds state from args =
 	let from = parse_expr file state from in
 	let args =
 		map_nodes
@@ -712,11 +736,12 @@ and parse_call file state from args =
 			args state
 	in
 	{
+		bounds = bnds;
 		from = from;
 		args = args;
 	}
 
-and parse_index file state from args =
+and parse_index file bnds state from args =
 	let from = parse_expr file state from in
 	let args =
 		map_nodes
@@ -724,14 +749,15 @@ and parse_index file state from args =
 			args state
 	in
 	{
+		bounds = bnds;
 		from = from;
 		args = args;
 	}
 
-and parse_initializer file state type_ args =
+and parse_initializer file bnds state type_ args =
 	let type_ =
 		match type_ with
-		| (_, Reference id) -> AUnresolvedReference id
+		| (bnds, Reference id) -> AUnresolvedReference (bnds, id)
 		| (bnds, _) -> raise (FatalError (file, bnds, "expected a reference to a type."))
 	in
 	let args =
@@ -745,11 +771,12 @@ and parse_initializer file state type_ args =
 				) args)
 	in
 	{
+		bounds = bnds;
 		type_ref = type_;
 		args = args;
 	}
 
-and parse_array_initializer file state size type_ args =
+and parse_array_initializer file bnds state size type_ args =
 	let size =
 		match size with
 		| Some size ->
@@ -765,35 +792,36 @@ and parse_array_initializer file state size type_ args =
 				args)
 	in
 	{
+		bounds = bnds;
 		size = size;
 		type_ref = type_;
 		elements = args;
 	}
 
-and parse_tuple_expr file state exprs =
+and parse_tuple_expr file _bnds state exprs =
 	map_nodes
 		(parse_expr file)
 		exprs state
 
-and parse_literal _file _state t =
+and parse_literal _file bnds _state t =
 	match t.token with
-	| Token.Integer i -> LInteger i
-	| Token.Float i -> LFloat i
-	| Token.Character i -> LCharacter i
-	| Token.String i -> LString i
-	| Token.True -> LTrue
-	| Token.False -> LFalse
+	| Token.Integer i -> LInteger (bnds, i)
+	| Token.Float i -> LFloat (bnds, i)
+	| Token.Character i -> LCharacter (bnds, i)
+	| Token.String i -> LString (bnds, i)
+	| Token.True -> LTrue bnds
+	| Token.False -> LFalse bnds
 	| _ -> raise (InternalError "expected literal.")
 
-and parse_pointer file state inner =
+and parse_pointer file _bnds state inner =
 	parse_annotation file state inner
 
-and parse_tuple file state members =
+and parse_tuple file _bnds state members =
 	map_nodes
 		(parse_annotation file)
 		members state
 
-and parse_anonymous_enum file state members =
+and parse_anonymous_enum file _bnds state members =
 	wrap_ctx CAnonymousEnum state
 		(map_nodes
 			(fun state h ->
@@ -801,24 +829,24 @@ and parse_anonymous_enum file state members =
 				| (_, EnumVariant {type_; _}) ->
 					let type_ = parse_annotation file state type_ in
 					AEMVariant type_
-				| (_, Function {name; params; result; code}) ->
-					let f = parse_function file state name params result code in
-					AEMFunction (ARPriv f)
-				| (_, Priv (_, Function {name; params; result; code})) ->
-					let f = parse_function file state name params result code in
-					AEMFunction (ARPriv f)
-				| (_, Pub (_, Function {name; params; result; code})) ->
-					let f = parse_function file state name params result code in
-					AEMFunction (ARPub f)
-				| (_, Stat (_, Function {name; params; result; code})) ->
-					let f = parse_function file state name params result code in
-					AEMFunction (ARStat f)
+				| (bnds, Function {name; params; result; code}) ->
+					let f = parse_function file bnds state name params result code in
+					AEMFunction (ARPriv (bnds, f))
+				| (am_bnds, Priv (bnds, Function {name; params; result; code})) ->
+					let f = parse_function file bnds state name params result code in
+					AEMFunction (ARPriv ((fst am_bnds, snd f.bounds), f))
+				| (am_bnds, Pub (bnds, Function {name; params; result; code})) ->
+					let f = parse_function file bnds state name params result code in
+					AEMFunction (ARPub ((fst am_bnds, snd f.bounds), f))
+				| (am_bnds, Stat (bnds, Function {name; params; result; code})) ->
+					let f = parse_function file bnds state name params result code in
+					AEMFunction (ARStat ((fst am_bnds, snd f.bounds), f))
 				| n ->
 					let a = parse_annotation file state n in
 					AEMVariant a
 			) members)
 
-and parse_function_type file state params return_type =
+and parse_function_type file bnds state params return_type =
 	let params =
 		wrap_ctx CFunctionParams state
 			(map_nodes
@@ -839,28 +867,29 @@ and parse_function_type file state params return_type =
 		| None -> None
 	in
 	{
+		bounds = bnds;
 		params = params;
 		return_type = return_type;
 	}
 
-and parse_variadic file state inner =
+and parse_variadic file _bnds state inner =
 	parse_annotation file state inner
 
-and parse_nameless_enum file state members =
+and parse_nameless_enum file _bnds state members =
 	wrap_ctx CEnum state
 		(map_nodes
 			(fun state h ->
 				match h with
-				| (_, EnumVariant {name; type_}) ->
+				| (bnds, EnumVariant {name; type_}) ->
 					let type_ = parse_annotation file state type_ in
-					EMVariant (name, type_)
+					EMVariant (bnds, (name, type_))
 				| nd ->
 					let f =
 						parse_access_restricted (fun state nd ->
 							match nd with
-							| (_, Function {name; params; result; code}) ->
+							| (bnds, Function {name; params; result; code}) ->
 								(* parse_access_restricted (fun s _ -> parse_function file s name params result code) state nd *)
-								parse_function file state name params result code
+								parse_function file bnds state name params result code
 							| (bnds, _) ->
 								raise (FatalError (file, bnds, "expected a (potentially access restricted) method."))
 						) state nd
@@ -868,13 +897,13 @@ and parse_nameless_enum file state members =
 					EMFunction f
 			) members)
 
-and parse_nameless_type file state members =
+and parse_nameless_type file _bnds state members =
 	wrap_ctx CType state
 		(map_nodes
 			(parse_access_restricted (parse_decl file))
 			members)
 
-and parse_match_branch file state pattern guard logic =
+and parse_match_branch file bnds state pattern guard logic =
 	let pattern = parse_pattern file state pattern guard in
 	let branch =
 		match logic with
@@ -895,30 +924,31 @@ and parse_match_branch file state pattern guard logic =
 		)
 	in
 	{
+		bounds = bnds;
 		pattern = pattern;
 		branch = branch;
 	}
 
 and parse_pattern file state pattern guard =
 	match guard with
-	| Some guard -> PGuard (parse_pattern_expr file state pattern, parse_expr file state guard)
+	| Some guard -> PGuard ((fst (fst pattern), snd (fst guard)), (parse_pattern_expr file state pattern, parse_expr file state guard))
 	| None -> PStandard (parse_pattern_expr file state pattern)
 
-and parse_pattern_expr file state pattern =
+and parse_pattern_expr file state pattern : pattern_expr =
 	match pattern with
-	| (_, Reference (_, ["_"])) -> PWildcard
-	| (_, Reference (_, [v])) -> PBind v
-	| (_, Integer t) -> PLiteral (parse_literal file state t)
-	| (_, Float t) -> PLiteral (parse_literal file state t)
-	| (_, Character t) -> PLiteral (parse_literal file state t)
-	| (_, String t) -> PLiteral (parse_literal file state t)
-	| (_, True t) -> PLiteral (parse_literal file state t)
-	| (_, False t) -> PLiteral (parse_literal file state t)
+	| (bnds, Reference (_, ["_"])) -> PWildcard bnds
+	| (bnds, Reference (_, [v])) -> PBind (bnds, v)
+	| (bnds, Integer t) -> PLiteral (parse_literal file bnds state t)
+	| (bnds, Float t) -> PLiteral (parse_literal file bnds state t)
+	| (bnds, Character t) -> PLiteral (parse_literal file bnds state t)
+	| (bnds, String t) -> PLiteral (parse_literal file bnds state t)
+	| (bnds, True t) -> PLiteral (parse_literal file bnds state t)
+	| (bnds, False t) -> PLiteral (parse_literal file bnds state t)
 	| (_, TupleExpr m) ->
 		PTuple (map_nodes
 			(parse_pattern_expr file)
 			m state)
-	| (_, Call {from; args}) ->
+	| (bnds, Call {from; args}) ->
 		let ref =
 			match from with
 			| (_, Reference ref) -> ref
@@ -929,8 +959,8 @@ and parse_pattern_expr file state pattern =
 				(parse_pattern_expr file)
 				args state
 		in
-		PUnresolvedConstructor (ref, CTuple args)
-	| (_, Initializer {type_; args}) ->
+		PUnresolvedConstructor (bnds, (ref, CTuple args))
+	| (bnds, Initializer {type_; args}) ->
 		let ref =
 			match type_ with
 			| (_, Reference ref) -> ref
@@ -940,29 +970,29 @@ and parse_pattern_expr file state pattern =
 			map_nodes
 				(fun state h ->
 					match h with
-					| (_, MemberAssignment {name; value}) ->
-						IPExpect (name, parse_pattern_expr file state value)
-					| (_, Reference (false, [name])) ->
-						IPBind name
+					| (bnds, MemberAssignment {name; value}) ->
+						IPExpect (bnds, (name, parse_pattern_expr file state value))
+					| (bnds, Reference (false, [name])) ->
+						IPBind (bnds, name)
 					| (bnds, _) -> raise (FatalError (file, bnds, "expected a type field binding or an expected value."))
 				)
 				args state
 		in
-		PUnresolvedConstructor (ref, CInitializer args)
-	| (_, Binary {left; op; right}) when op = Token.ExclusiveRange ->
+		PUnresolvedConstructor (bnds, (ref, CInitializer args))
+	| (bnds, Binary {left; op; right}) when op = Token.ExclusiveRange ->
 		let left = parse_expr file state left in
 		let right =
 			match right with
 			| Some right -> parse_expr file state right
 			| None -> raise (InternalError "binary operator not given a right operand.")
 		in
-		PExclusiveRange (left, right)
-	| (_, Binary {left; op; right}) when op = Token.InclusiveRange ->
+		PExclusiveRange (bnds, (left, right))
+	| (bnds, Binary {left; op; right}) when op = Token.InclusiveRange ->
 		let left = parse_expr file state left in
 		let right =
 			match right with
 			| Some right -> parse_expr file state right
 			| None -> raise (InternalError "binary operator not given a right operand.")
 		in
-		PInclusiveRange (left, right)
+		PInclusiveRange (bnds, (left, right))
 	| (bnds, _) -> raise (FatalError (file, bnds, "expected a pattern expression."))
